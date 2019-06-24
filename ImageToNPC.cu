@@ -1,122 +1,270 @@
 // Host is CPU 
 // Device is GPU
-#include "Spinnaker.h"
-#include "SpinGenApi/SpinnakerGenApi.h"
-#include <iostream>
-#include <sstream>
 #include <string>
 #include <stdio.h>
 #include <cuda.h>
-
-
+#include "Spinnaker.h"
+#include "SpinGenApi/SpinnakerGenApi.h"
+#include <iostream>
+#include <sstream> 
 using namespace Spinnaker;
 using namespace Spinnaker::GenApi;
 using namespace Spinnaker::GenICam;
 using namespace std;
 
+__global__ void processData(int *d_A, int numBlocks) {
+	int blockId = blockIdx.x + blockIdx.y * gridDim.x;
+	int threadId = blockId * (blockDim.x*blockDim.y)+ (threadIdx.y*blockDim.x)+threadIdx.x;
 
-// Kernel
-__global__ void processData( int *a, int width, int height ) {
-	//int idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-
-}
-
-int main( void ) {
-	//string filename = "/home/ubuntu/Documents/Blackfly_Images"; // Change later
-	int exposureTime = 200; // In milliseconds
-	float captureFPS = 4.9;
-	int gain = 0; // ISO for digital cameras
-	bool reverseX = false;
-	bool reverseY = false;
-	int bit = 8;
-	Spinnaker::SystemPtr system = System::GetInstance();
-	Spinnaker::CameraList camList = system->GetCameras();
-	unsigned int numCameras = camList.GetSize();
-	std::cout << "Number of cameras connected: " << numCameras << endl << endl;
-	if (numCameras == 0) {
-		std::cout << "No cameras detected." << endl;
-		camList.Clear();
-		system->ReleaseInstance();
-		return -1;
-	}
-
-	CameraPtr cam = camList.GetByIndex( 0 );
-	cam->Init();
-
-	//load default config
-	cam->UserSetSelector.SetValue( UserSetSelector_Default );
-	cam->UserSetLoad();
-
-	//set acquisition to continuous, turn off auto exposure, set the frame rate
-	//Camera Settings
-	//Set Packet Size
-	cam->GevSCPSPacketSize.SetValue( 9000 );
-	cam->DeviceLinkThroughputLimit.SetValue( 100000000 );
-	//Set acquisition mode
-	cam->AcquisitionMode.SetValue( AcquisitionMode_Continuous );
-	//Set exposure time
-	cam->ExposureAuto.SetValue( ExposureAuto_Off );
-	cam->ExposureMode.SetValue( ExposureMode_Timed );
-	cam->ExposureTime.SetValue( exposureTime * 1000 );
-	//Set FPS
-	cam->AcquisitionFrameRateEnable.SetValue( true );
-	cam->AcquisitionFrameRate.SetValue( captureFPS );
-	//set analog, gain, turn off gamma
-	cam->GainAuto.SetValue( GainAuto_Off );
-	cam->Gain.SetValue( gain );
-	cam->GammaEnable.SetValue( false );
-
-	cam->ReverseX.SetValue( reverseX );
-	cam->ReverseY.SetValue( reverseY );
-	if (bit > 8) {
-		cam->AdcBitDepth.SetValue( AdcBitDepth_Bit12 );
-		cam->PixelFormat.SetValue( PixelFormat_Mono12p );
-	} else {
-		cam->AdcBitDepth.SetValue( AdcBitDepth_Bit10 );
-		cam->PixelFormat.SetValue( PixelFormat_Mono8 );
-	}
-	cam->BeginAcquisition();
-	int i = 0;
-	while ( i < 10 ) {
-		int *a; // Host copy of a
-		int *d_a; // Device copy of a
-		ImagePtr imagePtr = cam->GetNextImage();
-		int imageWidth = imagePtr->GetWidth();
-		size_t imageHeight = imagePtr->GetHeight();
-		size_t imageSize = imageWidth * imageHeight;
-		int size = imageSize * sizeof( int );
-		// Allocate space on device for copies of a, b, and c
-		cudaMalloc( (void**)&d_a, size );
-		//Alloc space for host copies of a, b, c and setup input values
-		a = ( int* )malloc( size * sizeof(int) );
-		a = static_cast<int*>( imagePtr->GetData() );
-		std::cout << i << ": " << a;
-		dim3 threadsPerBlock( 16, 16 ); // Creating 12x8 threadblock, will need 456 blocks
-		dim3 numBlocks( (imageSize + 511) / 512 );
-
-		cudaDeviceSynchronize();
-
-		// Copy inputs to device
-		cudaMemcpy( &d_a, &a, size, cudaMemcpyHostToDevice );
-		processData<<<numBlocks,512>>>( d_a, imageWidth, imageHeight ); // Execute kernel with 512 threads on each block, enough blocks to cover whole image
-		// Copy result back to host
-		cudaMemcpy( &a, &d_a, size, cudaMemcpyDeviceToHost );
-		free( a ); // Free host memory
-		cudaFree( d_a ); // Free device memory
-		imagePtr->Release();
-		i = i + 1;
-
-	}
-	cam->EndAcquisition();
-	cam->DeInit();
-	camList.Clear(); // Clear list
-	system->ReleaseInstance(); // Release system
-	std::cout << endl << "Done. Press Enter to exit..." << endl;
-	getchar();
-
-	return 0;
+	if (threadId >= 19961856)return;
+	
+	if (d_A[threadId] >= 127) d_A[threadId] = 255;
+	else d_A[threadId] = 0;
 }
 
 
+// This function acquires and saves 10 images from a device.  
+int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice)
+{
+        int result = 0;
+        
+        cout << endl << endl << "*** IMAGE ACQUISITION ***" << endl << endl;
+        
+        try
+        {
 
+                // Set acquisition mode to continuous
+
+                // Retrieve enumeration node from nodemap
+                CEnumerationPtr ptrAcquisitionMode = nodeMap.GetNode("AcquisitionMode");
+                if (!IsAvailable(ptrAcquisitionMode) || !IsWritable(ptrAcquisitionMode))
+                {
+                        cout << "Unable to set acquisition mode to continuous (enum retrieval). Aborting..." << endl << endl;
+                        return -1;
+                }
+                
+                // Retrieve entry node from enumeration node
+                CEnumEntryPtr ptrAcquisitionModeContinuous = ptrAcquisitionMode->GetEntryByName("Continuous");
+                if (!IsAvailable(ptrAcquisitionModeContinuous) || !IsReadable(ptrAcquisitionModeContinuous))
+                {
+                        cout << "Unable to set acquisition mode to continuous (entry retrieval). Aborting..." << endl << endl;
+                        return -1;
+                }
+                
+                // Retrieve integer value from entry node
+                int64_t acquisitionModeContinuous = ptrAcquisitionModeContinuous->GetValue();
+                
+                // Set integer value from entry node as new value of enumeration node
+                ptrAcquisitionMode->SetIntValue(acquisitionModeContinuous);
+                
+                cout << "Acquisition mode set to continuous..." << endl;
+                
+                // Begin acquiring images
+             
+                pCam->BeginAcquisition();
+                cout << "Acquiring images..." << endl;
+                
+                // Retrieve device serial number for filename
+             
+                gcstring deviceSerialNumber("");
+                CStringPtr ptrStringSerial = nodeMapTLDevice.GetNode("DeviceSerialNumber");
+                if (IsAvailable(ptrStringSerial) && IsReadable(ptrStringSerial))
+                {
+                        deviceSerialNumber = ptrStringSerial->GetValue();
+                        cout << "Device serial number retrieved as " << deviceSerialNumber << "..." << endl;
+                }
+                cout << endl;
+                
+                // Retrieve, convert, and save images
+                const unsigned int k_numImages = 10;
+                
+                for (unsigned int imageCnt = 0; imageCnt < k_numImages; imageCnt++)
+                {
+                        try
+                        {
+                                // Retrieve next received image
+                                ImagePtr pResultImage = pCam->GetNextImage();
+                                
+                                // Ensure image completion
+                              
+                                if (pResultImage->IsIncomplete()) {
+                                        
+                                        cout << "Image incomplete with image status " << pResultImage->GetImageStatus() << "..." << endl << endl;
+                                }
+                                else {
+
+                                        // Print image information; height and width recorded in pixels
+                                        
+                                        size_t width = pResultImage->GetWidth();
+                                        
+                                        size_t height = pResultImage->GetHeight();
+                                        int size = width * height * sizeof(int);
+                                        cout << "Grabbed image " << imageCnt << ", width = " << width << ", height = " << height << endl;
+
+                                        // Convert image to mono 8
+                                       
+                                        ImagePtr convertedImage = pResultImage->Convert(PixelFormat_Mono8, HQ_LINEAR);
+					// Convert to array
+					int *a;
+					a = static_cast<int*>( pResultImage->GetData() );
+					int *d_a; // Device copy of a
+
+					cudaMalloc( (void**)&d_a, size );
+					dim3 threadsPerBlock( 16, 16 ); // Creating 16x16 threadblock, will need 456 blocks
+					int numBlocks( (size + 511) / 512 );
+					cudaMemcpy( &d_a, &a, size, cudaMemcpyHostToDevice );
+					cout << "Processing..." << endl;
+					processData<<<numBlocks,512>>>( d_a, numBlocks ); // Execute kernel with 512 threads on each block, enough blocks to cover whole image
+					cout << "Processed." << endl;					
+	
+					// Copy result back to host
+					cudaMemcpy( &a, &d_a, size, cudaMemcpyDeviceToHost );
+					free( a ); // Free host memory
+					cudaFree( d_a ); // Free device memory
+
+
+
+                                        ostringstream filename;
+                                        
+                                        filename << "Acquisition-";
+                                        if (deviceSerialNumber != "") {
+                                                        filename << deviceSerialNumber.c_str() << "-";
+                                        }
+                                        filename << imageCnt << ".jpg";
+                                        // Save image
+                                        convertedImage->Save(filename.str().c_str());
+                                        cout << "Image saved at " << filename.str() << endl;
+                                }
+                                // Release image
+                                pResultImage->Release();
+                                cout << endl;
+                        }
+                        catch (Spinnaker::Exception &e) {
+                                cout << "Error: " << e.what() << endl;
+                                result = -1;
+                        }
+                }
+                
+                // End acquisition
+              
+                pCam->EndAcquisition();
+        }
+        catch (Spinnaker::Exception &e) {
+                cout << "Error: " << e.what() << endl;
+                result = -1;
+        }
+        
+        return result;
+}
+// This function prints the device information of the camera from the transport
+// layer; please see NodeMapInfo example for more in-depth comments on printing
+// device information from the nodemap.
+int PrintDeviceInfo(INodeMap & nodeMap) {
+        int result = 0;
+        
+        cout << endl << "*** DEVICE INFORMATION ***" << endl << endl;
+        try {
+                FeatureList_t features;
+                CCategoryPtr category = nodeMap.GetNode("DeviceInformation");
+                if (IsAvailable(category) && IsReadable(category)) {
+                        category->GetFeatures(features);
+                        FeatureList_t::const_iterator it;
+                        for (it = features.begin(); it != features.end(); ++it) {
+                                CNodePtr pfeatureNode = *it;
+                                cout << pfeatureNode->GetName() << " : ";
+                                CValuePtr pValue = (CValuePtr)pfeatureNode;
+                                cout << (IsReadable(pValue) ? pValue->ToString() : "Node not readable");
+                                cout << endl;
+                        }
+                }
+                else
+                {
+                        cout << "Device control information not available." << endl;
+                }
+        }
+        catch (Spinnaker::Exception &e) {
+                cout << "Error: " << e.what() << endl;
+                result = -1;
+        }
+        
+        return result;
+}
+// This function acts as the body of the example; please see NodeMapInfo example 
+// for more in-depth comments on setting up cameras.
+int RunSingleCamera(CameraPtr pCam) {
+        int result = 0;
+        try {
+                // Retrieve TL device nodemap and print device information
+                INodeMap & nodeMapTLDevice = pCam->GetTLDeviceNodeMap();
+                
+                result = PrintDeviceInfo(nodeMapTLDevice);
+                
+                // Initialize camera
+                pCam->Init();
+                
+                // Retrieve GenICam nodemap
+                INodeMap & nodeMap = pCam->GetNodeMap();
+                // Acquire images
+                result = result | AcquireImages(pCam, nodeMap, nodeMapTLDevice);
+                
+                // Deinitialize camera
+                pCam->DeInit();
+        }
+        catch (Spinnaker::Exception &e) {
+                cout << "Error: " << e.what() << endl;
+                result = -1;
+        }
+        return result;
+}
+// Example entry point; please see Enumeration example for more in-depth 
+// comments on preparing and cleaning up the system.
+int main(int /*argc*/, char** /*argv*/) {
+
+        
+  	int result = 0;
+        // Retrieve singleton reference to system object
+        SystemPtr system = System::GetInstance();
+        // Retrieve list of cameras from the system
+        CameraList camList = system->GetCameras();
+        unsigned int numCameras = camList.GetSize();
+        
+        cout << "Number of cameras detected: " << numCameras << endl << endl;
+        cout << "Press enter to start, press ctrl+c to stop";
+	cin;
+	
+        // Finish if there are no cameras
+        if (numCameras == 0) {
+                // Clear camera list before releasing system
+                camList.Clear();
+                // Release system
+                system->ReleaseInstance();
+                cout << "Not enough cameras!" << endl;
+                cout << "Done! Press Enter to exit..." << endl;
+                getchar();
+                
+                return -1;
+        }
+        
+        CameraPtr pCam = NULL;
+        // Run example on each camera
+        for (unsigned int i = 0; i < numCameras; i++) {
+                // Select camera
+                pCam = camList.GetByIndex(i);
+                cout << endl << "Running example for camera " << i << "..." << endl;
+                
+                // Run example
+                result = result | RunSingleCamera(pCam);
+                
+                cout << "Camera " << i << " example complete..." << endl << endl;
+        }
+
+        // Release reference to the camera
+        pCam = NULL;
+        // Clear camera list before releasing system
+        camList.Clear();
+        // Release system
+        system->ReleaseInstance();
+        cout << endl << "Done. Press Enter to exit..." << endl;
+        getchar();
+        return result;
+}
