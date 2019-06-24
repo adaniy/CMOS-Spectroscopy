@@ -4,7 +4,7 @@ Steps to run with fresh Linux installation
 
 
 1. Install nano command to edit files
-  a. sudo apt-get install nano
+       sudo apt-get install nano
 
 2. Add Cuda to PATH
 
@@ -14,7 +14,7 @@ Steps to run with fresh Linux installation
   
        export PATH=/usr/local/cudax-x.x/bin${PATH:+:${PATH}}$
   
-        export LD_LIBRARY_PATH=/usr/local/cuda-x.x/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}} 
+       export LD_LIBRARY_PATH=/usr/local/cuda-x.x/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}} 
  
   b. ctrl+x -> y -> enter
 
