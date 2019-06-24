@@ -8,13 +8,13 @@ Steps to run with fresh Linux installation
 
 2. Add Cuda to PATH
 
-    a. sudo nano /home/username/.bashrc
+    a.   sudo nano /home/username/.bashrc
 
       At the bottom of the file add:
   
-      export PATH=/usr/local/cudax-x.x/bin${PATH:+:${PATH}}$
+       export PATH=/usr/local/cudax-x.x/bin${PATH:+:${PATH}}$
   
-      export LD_LIBRARY_PATH=/usr/local/cuda-x.x/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}} 
+        export LD_LIBRARY_PATH=/usr/local/cuda-x.x/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}} 
  
   b. ctrl+x -> y -> enter
 
