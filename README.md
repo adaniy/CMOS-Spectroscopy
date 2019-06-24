@@ -32,4 +32,5 @@ Steps to run with fresh Linux installation
 
 OR:
 
-        nvcc --version to ensure compiler is installed
+        nvcc --version 
+to ensure compiler is installed
