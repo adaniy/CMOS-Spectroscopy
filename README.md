@@ -1,6 +1,6 @@
 # PySpin-Processing
 
-Steps to run with fresh Linux installation with Ubuntu
+Steps to run with fresh Linux installation
 
 
 1. Install nano command to edit files
