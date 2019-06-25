@@ -1,8 +1,3 @@
-// Host is CPU 
-// Device is GPU
-#include <string>
-#include <stdio.h>
-#include <cuda.h>
 #include "Spinnaker.h"
 #include "SpinGenApi/SpinnakerGenApi.h"
 #include <iostream>
@@ -11,15 +6,20 @@ using namespace Spinnaker;
 using namespace Spinnaker::GenApi;
 using namespace Spinnaker::GenICam;
 using namespace std;
-
-__global__ void processData(int *d_A, int numBlocks) {
-	int blockId = blockIdx.x + blockIdx.y * gridDim.x;
-	int threadId = blockId * (blockDim.x*blockDim.y)+ (threadIdx.y*blockDim.x)+threadIdx.x;
-
-	if (threadId >= 19961856)return;
-	
-	if (d_A[threadId] >= 127) d_A[threadId] = 255;
-	else d_A[threadId] = 0;
+__global__ void processData(int *d_A) {
+	const int imageWidth = 5472;
+	const int imageHeight = 3648;
+	const int imageSize = imageWidth * imageHeight;
+	int row = (blockIdx.y * blockDim.x * blockDim.y) + threadIdx.y;
+	int col = (blockIdx.x * blockDim.x * blockDim.y) + threadIdx.x;
+	int index = (row * imageWidth) + col;
+	if (row < imageHeight && col < imageWidth) {
+		if (d_A[0] >= 127) {
+			d_A[0] = 255;
+		} else {
+			d_A[0] = 0;
+		}
+	}
 }
 
 
@@ -37,16 +37,14 @@ int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice
 
                 // Retrieve enumeration node from nodemap
                 CEnumerationPtr ptrAcquisitionMode = nodeMap.GetNode("AcquisitionMode");
-                if (!IsAvailable(ptrAcquisitionMode) || !IsWritable(ptrAcquisitionMode))
-                {
+                if (!IsAvailable(ptrAcquisitionMode) || !IsWritable(ptrAcquisitionMode)) {
                         cout << "Unable to set acquisition mode to continuous (enum retrieval). Aborting..." << endl << endl;
                         return -1;
                 }
                 
                 // Retrieve entry node from enumeration node
                 CEnumEntryPtr ptrAcquisitionModeContinuous = ptrAcquisitionMode->GetEntryByName("Continuous");
-                if (!IsAvailable(ptrAcquisitionModeContinuous) || !IsReadable(ptrAcquisitionModeContinuous))
-                {
+                if (!IsAvailable(ptrAcquisitionModeContinuous) || !IsReadable(ptrAcquisitionModeContinuous)) {
                         cout << "Unable to set acquisition mode to continuous (entry retrieval). Aborting..." << endl << endl;
                         return -1;
                 }
@@ -59,7 +57,21 @@ int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice
                 
                 cout << "Acquisition mode set to continuous..." << endl;
                 
-                // Begin acquiring images
+				CEnumerationPtr ptrAdcBitDepth = nodeMap.GetNode("AdcBitDepth");
+				if (!IsAvailable(ptrAdcBitDepth) || !IsWritable(ptrAdcBitDepth)) {
+					cout << "Unable to set AdcBitDepth to Bit 10 (enum retrieval). Aborting...)" << endl << endl;
+					return -1;
+				}
+				CEnumEntryPtr ptrAdcBitDepthBit10 = ptrAdcBitDepth->GetEntryByName("Bit10");
+				if (!IsAvailable(ptrAdcBitDepthBit10) || !IsReadable(ptrAdcBitDepthBit10)) {
+						cout << "Unable to set AdcBitDepth to Bit 10 (entry retrieval). Aborting..." << endl << endl;            
+                		return -1;
+				}
+				int64_t adcBitDepthBit10 = ptrAdcBitDepthBit10->GetValue();
+				ptrAdcBitDepth->SetIntValue(adcBitDepthBit10);
+				
+				cout << "AdcBitDepth set to Bit10..." << endl;
+// Begin acquiring images
              
                 pCam->BeginAcquisition();
                 cout << "Acquiring images..." << endl;
@@ -77,7 +89,7 @@ int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice
                 
                 // Retrieve, convert, and save images
                 const unsigned int k_numImages = 10;
-                
+
                 for (unsigned int imageCnt = 0; imageCnt < k_numImages; imageCnt++)
                 {
                         try
@@ -99,30 +111,31 @@ int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice
                                         
                                         size_t height = pResultImage->GetHeight();
                                         int size = width * height * sizeof(int);
-                                        cout << "Grabbed image " << imageCnt << ", width = " << width << ", height = " << height << endl;
+										
+                                        cout << "Grabbed image " << imageCnt << ", width = " << width << ", height = " << height << ", memory allocated = " << size << " bytes" << endl;
 
                                         // Convert image to mono 8
-                                       
-                                        ImagePtr convertedImage = pResultImage->Convert(PixelFormat_Mono8, HQ_LINEAR);
-					// Convert to array
-					int *a;
-					a = static_cast<int*>( pResultImage->GetData() );
-					int *d_a; // Device copy of a
+                                        
+                                        ImagePtr convertedImage = pResultImage->Convert(PixelFormat_Mono8);
+										int numBlocks( (size + 511) / 512 );
+										// Convert to array
+										
+										int *a;	
+										int *d_a;
 
-					cudaMalloc( (void**)&d_a, size );
-					dim3 threadsPerBlock( 16, 16 ); // Creating 16x16 threadblock, will need 456 blocks
-					int numBlocks( (size + 511) / 512 );
-					cudaMemcpy( &d_a, &a, size, cudaMemcpyHostToDevice );
-					cout << "Processing..." << endl;
-					processData<<<numBlocks,512>>>( d_a, numBlocks ); // Execute kernel with 512 threads on each block, enough blocks to cover whole image
-					cout << "Processed." << endl;					
-	
-					// Copy result back to host
-					cudaMemcpy( &a, &d_a, size, cudaMemcpyDeviceToHost );
-					free( a ); // Free host memory
-					cudaFree( d_a ); // Free device memory
+										
+										cudaMalloc((void**)&d_a, size);
+									
+										a = static_cast<int*>(convertedImage->GetData()); // Seg fault is here, data is not properly written through buffer before being read
 
-
+							
+										cudaMemcpy( d_a, a, 79847424, cudaMemcpyHostToDevice );
+										processData<<<numBlocks, 512>>>(d_a);
+										cudaMemcpy( a, d_a, size, cudaMemcpyDeviceToHost );
+									
+										free( a );
+										cudaFree( d_a );
+									
 
                                         ostringstream filename;
                                         
@@ -157,8 +170,6 @@ int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice
         return result;
 }
 // This function prints the device information of the camera from the transport
-// layer; please see NodeMapInfo example for more in-depth comments on printing
-// device information from the nodemap.
 int PrintDeviceInfo(INodeMap & nodeMap) {
         int result = 0;
         
@@ -221,16 +232,16 @@ int RunSingleCamera(CameraPtr pCam) {
 int main(int /*argc*/, char** /*argv*/) {
 
         
-  	int result = 0;
-        // Retrieve singleton reference to system object
-        SystemPtr system = System::GetInstance();
-        // Retrieve list of cameras from the system
-        CameraList camList = system->GetCameras();
+	  	int result = 0;
+		// Retrieve singleton reference to system object
+		SystemPtr system = System::GetInstance();
+		// Retrieve list of cameras from the system
+		CameraList camList = system->GetCameras();
         unsigned int numCameras = camList.GetSize();
         
         cout << "Number of cameras detected: " << numCameras << endl << endl;
         cout << "Press enter to start, press ctrl+c to stop";
-	cin;
+		getchar();
 	
         // Finish if there are no cameras
         if (numCameras == 0) {
@@ -250,7 +261,8 @@ int main(int /*argc*/, char** /*argv*/) {
         for (unsigned int i = 0; i < numCameras; i++) {
                 // Select camera
                 pCam = camList.GetByIndex(i);
-                cout << endl << "Running example for camera " << i << "..." << endl;
+
+                cout << endl << "Running for camera " << i << "..." << endl;
                 
                 // Run example
                 result = result | RunSingleCamera(pCam);
