@@ -2,11 +2,19 @@
 #include "SpinGenApi/SpinnakerGenApi.h"
 #include <iostream>
 #include <sstream>
+#include <opencv2/opencv.hpp>
+
 using namespace Spinnaker;
 using namespace Spinnaker::GenApi;
 using namespace Spinnaker::GenICam;
 using namespace std;
-__global__ void processData(int *d_A) {
+
+static int height;
+static int width;
+static 
+
+
+__global__ void processData(int *device_imagePtr) {
 	const int imageWidth = 5472;
 	const int imageHeight = 3648;
 	const int imageSize = imageWidth * imageHeight;
@@ -14,14 +22,28 @@ __global__ void processData(int *d_A) {
 	int col = (blockIdx.x * blockDim.x * blockDim.y) + threadIdx.x;
 	int index = (row * imageWidth) + col;
 	if (row < imageHeight && col < imageWidth) {
-		if (d_A[0] >= 127) {
-			d_A[0] = 255;
+		if (device_imagePtr[0] >= 127) {
+			device_imagePtr[0] = 255;
 		} else {
-			d_A[0] = 0;
+			device_imagePtr[0] = 0;
 		}
 	}
 }
 
+int* ConvertToArray(ImagePtr pImage) {
+    ImagePtr convertedImage = pImage->Convert(PixelFormat_BGR8, NEAREST_NEIGHBOR);
+
+    unsigned int XPadding = convertedImage->GetXPadding();
+    unsigned int YPadding = convertedImage->GetYPadding();
+    unsigned int rowsize = convertedImage->GetWidth();
+    unsigned int colsize = convertedImage->GetHeight();
+
+    //image data contains padding. When allocating Mat container size, you need to account for the X,Y image data padding. 
+    cv::Mat cvimage = cv::Mat(colsize + YPadding, rowsize + XPadding, CV_8UC3, convertedImage->GetData(), convertedImage->GetStride());
+	static int *imageData = new int(cvimage.rows * cvimage.cols * cvimage.channels());
+	static int* imageDataPointer = reinterpret_cast<int*>(cvimage.data);
+    return imageDataPointer;
+}
 
 // This function acquires and saves 10 images from a device.  
 int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice)
@@ -107,15 +129,14 @@ int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice
 
                                         // Print image information; height and width recorded in pixels
                                         
-                                        size_t width = pResultImage->GetWidth();
+                                        width = pResultImage->GetWidth();
                                         
-                                        size_t height = pResultImage->GetHeight();
+                                        height = pResultImage->GetHeight();
                                         int size = width * height * sizeof(int);
 										
                                         cout << "Grabbed image " << imageCnt << ", width = " << width << ", height = " << height << ", memory allocated = " << size << " bytes" << endl;
 
                                         // Convert image to mono 8
-                                        
                                         ImagePtr convertedImage = pResultImage->Convert(PixelFormat_Mono8);
 										int numBlocks( (size + 511) / 512 );
 										// Convert to array
@@ -124,13 +145,15 @@ int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice
 										int *device_imageArrayPtr;
 
 										
-										cudaMalloc((void**)&device_imageArrayPtr, size);
-										imageArrayPtr = (int*)malloc(size);
-//										imageArrayPtr = static_cast<int*>(convertedImage->GetData()); // Seg fault is here, data is not properly written through buffer before being read
+										cudaMalloc((int**)&device_imageArrayPtr, size);
+										imageArrayPtr = (int*)malloc( size );
+										//imageArrayPtr = ConvertToArray(convertedImage); // Seg fault is here, data is not properly written through buffer before being read
+											
 										
-							
 										cudaMemcpy( device_imageArrayPtr, imageArrayPtr, size, cudaMemcpyHostToDevice );
-										processData<<<numBlocks, 512>>>(d_a);
+										
+										processData<<<numBlocks, 512>>>(device_imageArrayPtr);
+										
 										cudaMemcpy( imageArrayPtr, device_imageArrayPtr, size, cudaMemcpyDeviceToHost );
 									
 										free( imageArrayPtr );
