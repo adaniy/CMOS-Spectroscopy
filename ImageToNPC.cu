@@ -120,21 +120,21 @@ int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice
 										int numBlocks( (size + 511) / 512 );
 										// Convert to array
 										
-										int *a;	
-										int *d_a;
+										int *imageArrayPtr;	
+										int *device_imageArrayPtr;
 
 										
-										cudaMalloc((void**)&d_a, size);
-										a = (int*)malloc(size);
-//										a = static_cast<int*>(convertedImage->GetData()); // Seg fault is here, data is not properly written through buffer before being read
+										cudaMalloc((void**)&device_imageArrayPtr, size);
+										imageArrayPtr = (int*)malloc(size);
+//										imageArrayPtr = static_cast<int*>(convertedImage->GetData()); // Seg fault is here, data is not properly written through buffer before being read
 										
 							
-										cudaMemcpy( d_a, a, size, cudaMemcpyHostToDevice );
+										cudaMemcpy( device_imageArrayPtr, imageArrayPtr, size, cudaMemcpyHostToDevice );
 										processData<<<numBlocks, 512>>>(d_a);
-										cudaMemcpy( a, d_a, size, cudaMemcpyDeviceToHost );
+										cudaMemcpy( imageArrayPtr, device_imageArrayPtr, size, cudaMemcpyDeviceToHost );
 									
-										free( a );
-										cudaFree( d_a );
+										free( imageArrayPtr );
+										cudaFree( device_imageArrayPtr );
 									
 
                                         ostringstream filename;
