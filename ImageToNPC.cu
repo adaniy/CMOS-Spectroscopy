@@ -79,31 +79,31 @@ int main( void ) {
 	cam->BeginAcquisition();
 	int i = 0;
 	while ( i < 10 ) {
-		int *a; // Host copy of a
-		int *d_a; // Device copy of a
+		int *imageArrayPtr; // Host copy of a
+		int *device_imageArrayPtr; // Device copy of a
 		ImagePtr imagePtr = cam->GetNextImage();
 		int imageWidth = imagePtr->GetWidth();
 		int imageHeight = imagePtr->GetHeight();
 		size_t imageSize = imageWidth * imageHeight;
 		int size = imageSize * sizeof( int );
 		// Allocate space on device for copies of a, b, and c
-		cudaMalloc( (void**)&d_a, size );	
+		cudaMalloc( (void**)&device_imageArrayPtr, size );	
 		//Alloc space for host copies of a, b, c and setup input values
-		a = ( int* )malloc( size * sizeof(int) );
-		//a = static_cast<int*>( imagePtr->GetData() );
-		std::cout << i << ": " << a;
+		imageArrayPtr = ( int* )malloc( size * sizeof(int) );
+		imageArrayPtr = static_cast<int*>( imagePtr->GetData() );
+
 		dim3 threadsPerBlock( 16, 16 ); // Creating 12x8 threadblock, will need 456 blocks
 		dim3 numBlocks( (imageSize + 511) / 512 );
 
 		//cudaDeviceSynchronize();
 
 		// Copy inputs to device
-		cudaMemcpy( &d_a, &a, size, cudaMemcpyHostToDevice );
+		cudaMemcpy( &device_imageArrayPtr, &imageArrayPtr, size, cudaMemcpyHostToDevice );
 		processData<<<numBlocks,512>>>( d_a, imageWidth, imageHeight ); // Execute kernel with 512 threads on each block, enough blocks to cover whole image
 		// Copy result back to host
-		cudaMemcpy( &a, &d_a, size, cudaMemcpyDeviceToHost );
-		free( a ); // Free host memory
-		cudaFree( d_a ); // Free device memory
+		cudaMemcpy( &imageArrayPtr, &device_imageArrayPtr, size, cudaMemcpyDeviceToHost );
+		free( imageArrayPtr ); // Free host memory
+		cudaFree( device_imageArrayPtr ); // Free device memory
 		imagePtr->Release();
 		i = i + 1;
 
