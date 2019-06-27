@@ -3,16 +3,17 @@
 #include <iostream>
 #include <sstream>
 #include <opencv2/opencv.hpp>
+#include <cuda.h>
+#include <stdio.h>
 
 using namespace Spinnaker;
 using namespace Spinnaker::GenApi;
 using namespace Spinnaker::GenICam;
 using namespace std;
 
-static int height;
-static int width;
-static 
-
+static size_t height;
+static size_t width;
+#define NThreads 512
 
 __global__ void processData(int *device_imagePtr) {
 	const int imageWidth = 5472;
@@ -21,16 +22,18 @@ __global__ void processData(int *device_imagePtr) {
 	int row = (blockIdx.y * blockDim.x * blockDim.y) + threadIdx.y;
 	int col = (blockIdx.x * blockDim.x * blockDim.y) + threadIdx.x;
 	int index = (row * imageWidth) + col;
-	if (row < imageHeight && col < imageWidth) {
-		if (device_imagePtr[0] >= 127) {
-			device_imagePtr[0] = 255;
+	
+	device_imagePtr[index] = 19;
+	/*if (row < imageHeight && col < imageWidth) {
+		if (device_imagePtr[index] >= 127) {
+			device_imagePtr[index] = 127;
 		} else {
-			device_imagePtr[0] = 0;
+			device_imagePtr[index] = 0;
 		}
-	}
+	}*/
 }
 
-int* ConvertToArray(ImagePtr pImage) {
+void ConvertToArray(ImagePtr pImage, int* imageData) {
     ImagePtr convertedImage = pImage->Convert(PixelFormat_BGR8, NEAREST_NEIGHBOR);
 
     unsigned int XPadding = convertedImage->GetXPadding();
@@ -39,11 +42,15 @@ int* ConvertToArray(ImagePtr pImage) {
     unsigned int colsize = convertedImage->GetHeight();
 
     //image data contains padding. When allocating Mat container size, you need to account for the X,Y image data padding. 
-    cv::Mat cvimage = cv::Mat(colsize + YPadding, rowsize + XPadding, CV_8UC3, convertedImage->GetData(), convertedImage->GetStride());
-	static int *imageData = new int(cvimage.rows * cvimage.cols * cvimage.channels());
-	static int* imageDataPointer = reinterpret_cast<int*>(cvimage.data);
-    return imageDataPointer;
+    cv::Mat cvimage = cv::Mat(colsize + YPadding, rowsize + XPadding, CV_8UC1, convertedImage->GetData(), convertedImage->GetStride());
+	imageData = new int(cvimage.rows * cvimage.cols * cvimage.channels()); // Dst
+	int* imageDataPointer = reinterpret_cast<int*>(cvimage.data); // Src
+	// pointer from, pointer two, size in bytes
+	std::memcpy(imageData, imageDataPointer, cvimage.rows * cvimage.cols * cvimage.channels() * sizeof(int));
+		
+
 }
+
 
 // This function acquires and saves 10 images from a device.  
 int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice)
@@ -135,32 +142,52 @@ int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice
                                         int size = width * height * sizeof(int);
 										
                                         cout << "Grabbed image " << imageCnt << ", width = " << width << ", height = " << height << ", memory allocated = " << size << " bytes" << endl;
-
+										
                                         // Convert image to mono 8
                                         ImagePtr convertedImage = pResultImage->Convert(PixelFormat_Mono8);
-										int numBlocks( (size + 511) / 512 );
+										int numBlocks( ((size / sizeof(int)) + NThreads - 1) / NThreads );
 										// Convert to array
+										//static int *finalPixelInformationPointer;
+										//static int *device_finalPixelInformationPointer;
+										static int *imageArrayPtr;
+										static int *device_imageArrayPtr;
 										
-										int *imageArrayPtr;	
-										int *device_imageArrayPtr;
-
-										
-										cudaMalloc((int**)&device_imageArrayPtr, size);
+										cudaMalloc((int**)device_imageArrayPtr, size);
 										imageArrayPtr = (int*)malloc( size );
-										//imageArrayPtr = ConvertToArray(convertedImage); // Seg fault is here, data is not properly written through buffer before being read
-											
+
+										unsigned int XPadding = convertedImage->GetXPadding();
+										unsigned int YPadding = convertedImage->GetYPadding();
+										unsigned int rowsize = convertedImage->GetWidth();
+										unsigned int colsize = convertedImage->GetHeight();
+
+										//image data contains padding. When allocating Mat container size, you need to account for the X,Y image data padding. 
+										cv::Mat cvimage = cv::Mat(colsize + YPadding, rowsize + XPadding, CV_8UC1, convertedImage->GetData(), convertedImage->GetStride());
+										imageArrayPtr = reinterpret_cast<int*>(cvimage.data); // Src
+										// pointer from, pointer two, size in bytes
+
+										//ConvertToArray(convertedImage, imageArrayPtr); // Seg fault is here, data is not properly written through buffer before being read
+										//finalPixelInformationHolder = (int*)malloc(pixelHolderSize);
+										//cudaMalloc((int**)device_finalPixelInformationHolder, pixelHolderSize)
+										
+										for (int i = 0; i < 100; i++) {
+											cout << imageArrayPtr[i] << " ";
+										}
 										
 										cudaMemcpy( device_imageArrayPtr, imageArrayPtr, size, cudaMemcpyHostToDevice );
+										cout << endl << "Processing..." << endl;
+										//cudaMemcpy(device_finalPixelInformationHolder, finalPixelInformationHolder, pixelHolderSize, cudaMemcpyHostToDevice);
+										processData<<<numBlocks, NThreads>>>(device_imageArrayPtr); // FIXME
 										
-										processData<<<numBlocks, 512>>>(device_imageArrayPtr);
-										
+										//cudaMemcpy(finalPixelInformationHolder, device_finalPixelInformationHolder, pixelHolderSize, cudaMemcpyDeviceToHost);
 										cudaMemcpy( imageArrayPtr, device_imageArrayPtr, size, cudaMemcpyDeviceToHost );
-									
-										free( imageArrayPtr );
-										cudaFree( device_imageArrayPtr );
-									
+										cout << endl << "Processed." << endl;										
+										for (int i = 0; i < 100; i++) {
+											cout << imageArrayPtr[i] << " ";
+										}
 
-                                        ostringstream filename;
+										ImagePtr saveImage = Spinnaker::Image::Create(width, height, 0, 0, PixelFormat_Mono8, (void*)imageArrayPtr);
+
+										ostringstream filename;
                                         
                                         filename << "Acquisition-";
                                         if (deviceSerialNumber != "") {
@@ -168,9 +195,12 @@ int AcquireImages(CameraPtr pCam, INodeMap & nodeMap, INodeMap & nodeMapTLDevice
                                         }
                                         filename << imageCnt << ".jpg";
                                         // Save image
-                                        convertedImage->Save(filename.str().c_str());
-                                        cout << "Image saved at " << filename.str() << endl;
-
+                                        
+										saveImage->Save(filename.str().c_str());
+		                                cout << "Image saved at " << filename.str() << endl;
+										
+										//free( imageArrayPtr );
+										//cudaFree( device_imageArrayPtr );
                                 }
                                 // Release image
                                 pResultImage->Release();
