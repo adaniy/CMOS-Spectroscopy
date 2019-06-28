@@ -90,13 +90,13 @@ def convert_image(image, val, times):
 		print('Grabbed image %i, width = %i, height = %i' % (val,image.GetWidth(),image.GetHeight()))
 	print(img_nd)
 	print("Processing...")
-	t1 = time.time()
+	t4 = time.time()
 	#vectorized_process = vectorize(["uint8(uint8)"], target = "cuda")(process_np)
 	#vectorized_process(img_nd) #Recheck rules for @vectorize
 	process_np(img_nd)
-	t2 = time.time()
+	t5 = time.time()
 
-	print("Time to process: " + str(t2 -t1))
+	print("Time to process: " + str(t5 -t4))
 	print(img_nd)
 	return img_nd
 i=0
@@ -111,11 +111,19 @@ try:
 	while True:
 	    #Capture and convert image
 		image = cam.GetNextImage()
+		t1 = time.time()
+		#Create method that runs on all CPU cores
 		multiprocessing_convert_image = multiprocessing.Process(target=convert_image, args=(image,i,times))
+		
+		#append to list of processes
 		processes.append(multiprocessing_convert_image)
+		#start 
 		multiprocessing_convert_image.start()
+		t2 = time.time()
+		times.append(t2 - t1)
 		print(str(i))
 		i += 1
+		image = None;
 except KeyboardInterrupt:
 	t0 = time.time()
 			
@@ -123,7 +131,16 @@ for process in processes:
 	process.join()
     
 #Find and print performance metrics
+
 total_time = 0
+
+for time in times:
+	total_time += time
+	
+average_time = total_time / len(times)
+print("Frames captured: " + str(i))
+print("Average processing time: " + str(average_time))
+
 fps = i / (t0 -t3)
 print("Frames per second (actual): " + str(fps))
 
@@ -141,5 +158,3 @@ del image
 del cam
 del cam_list
 system.ReleaseInstance()
-
-
