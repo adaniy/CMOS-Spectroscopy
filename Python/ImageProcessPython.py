@@ -2,6 +2,7 @@ import PySpin, time, datetime
 import numpy as np
 from numba import *
 import os
+import multiprocessing
 
 save_folder = "/home/schoen/Documents/Blackfly_Images" # Change later
 exposure_time = 200 # in milliseconds
@@ -74,7 +75,7 @@ def process_np(array):
 
 
 #Converts the image to an np array
-def convert_image(image, val):
+def convert_image(image, val, times):
 	#convert PySpin image object into an ND array, rescale, save jpg image and nd array\
 	time_str = val
 	if image_bit == 16:
@@ -94,7 +95,7 @@ def convert_image(image, val):
 	#vectorized_process(img_nd) #Recheck rules for @vectorize
 	process_np(img_nd)
 	t2 = time.time()
-	times.append(t2-t1)
+
 	print("Time to process: " + str(t2 -t1))
 	print(img_nd)
 	return img_nd
@@ -102,6 +103,7 @@ i=0
 cam.BeginAcquisition()
 save_threads = []
 times = []
+processes = []
 input("Press enter to start. Press ctrl+c to stop.")
 t3 = time.time()
 try:
@@ -109,20 +111,19 @@ try:
 	while True:
 	    #Capture and convert image
 		image = cam.GetNextImage()
-		convert(image, i)
+		multiprocessing_convert_image = multiprocessing.Process(target=convert_image, args=(image,i,times))
+		processes.append(multiprocessing_convert_image)
+		multiprocessing_convert_image.start()
 		print(str(i))
 		i += 1
 except KeyboardInterrupt:
 	t0 = time.time()
 			
+for process in processes:
+	process.join()
+    
 #Find and print performance metrics
 total_time = 0
-for t in times:
-	total_time += t
-
-average_time = total_time / len(times)
-
-print("Average processing time: " + str(average_time))
 fps = i / (t0 -t3)
 print("Frames per second (actual): " + str(fps))
 
@@ -140,4 +141,5 @@ del image
 del cam
 del cam_list
 system.ReleaseInstance()
+
 
