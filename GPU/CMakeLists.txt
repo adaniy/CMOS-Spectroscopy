@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.10)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_CXX_FLAGS "-Wall -std=c++0x")
+project(IMAGE_TO_NPC LANGUAGES CUDA CXX)
+if (NOT DEFINED CMAKE_CUDA_STANDARD)
+	set(CMAKE_CUDA_STANDARD 11)
+	set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+endif()
+include_directories(/usr/include/spinnaker)
+link_directories(/usr/lib)
+add_compile_options(-std=c++11 -fPIC -pthread)
+find_package(CUDA)
+find_package(OpenCV)
+cuda_add_executable(ex ImageProcessGPU.cu)
+target_link_libraries(ex Spinnaker ${OpenCV_LIBS})
+
+
