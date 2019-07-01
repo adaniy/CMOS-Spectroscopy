@@ -4,7 +4,7 @@ from numba import *
 import os
 import multiprocessing
 
-save_folder = "/home/schoen/Documents/ImageProcessPython/Images/" # Change later
+save_folder = "Images/" # Change later
 exposure_time = 200 # in milliseconds
 capture_fps = 4.9
 gain = 0 # ISO for digital cameras
@@ -82,7 +82,6 @@ del image
 del cam
 del cam_list
 system.ReleaseInstance()
-
 
 
 
