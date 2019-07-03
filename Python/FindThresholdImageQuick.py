@@ -4,7 +4,7 @@ import time
 
 
 t0 = time.time()
-save_folder = "C:\\Users\\habraha1\\Documents\\Images\\"
+save_folder = "Images\\"
 print(cv2.__version__)
 image = cv2.imread(save_folder + "Picture 1.jpg")
 print(image.shape)
