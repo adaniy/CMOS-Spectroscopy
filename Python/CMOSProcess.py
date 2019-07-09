@@ -17,6 +17,8 @@ import PySpin
 import cv2
 import time
 import multiprocessing
+import os
+
 
 class Process():
     save_jpg = False  # Static methods to determine what "path" code will take
@@ -42,7 +44,7 @@ class Process():
             self.find_threshold_bool = find_threshold_bool
         if multi is not None:
             self.multi = multi
-            
+        
     def find_threshold(self, image, num_images):
         t0 = time.time()
         print(cv2.__version__)
@@ -72,22 +74,17 @@ class Process():
         print("Total time to run: " + str(t1 - t0))
         print(img_dev)
         print(img_dev.shape)
+        cv2.imwrite(self.save_folder + "Threshold.jpg", img_dev)
         return img_dev
 
     def convert_images(self, temp_image_to_be_thresholded, temp_threshold):
         temp_image_to_be_thresholded[temp_image_to_be_thresholded > temp_threshold] = 255
         temp_image_to_be_thresholded[temp_image_to_be_thresholded <= temp_threshold] = 0
         if self.save_jpg and self.threshold:  # If user wants to save image as .jpg, save as .jpg
-            cv2.imwrite(self.save_folder + "Processed Picture " + str(time.time()) + ".jpg", temp_image_to_be_thresholded)
+            cv2.imwrite(self.save_folder + 'Picture' + str(time.time()) + '.jpg', temp_image_to_be_thresholded)
         if self.save_np and self.threshold:  # If user wants to save image as .npp, save as .npp
-            np.save(self.save_folder + "Processed Array " + str(time.time()) + ".jpg", temp_image_to_be_thresholded)
+            np.save(self.save_folder + "Processed Array " + str(time.time()), temp_image_to_be_thresholded)
 
-    def capture_images(self, cam, num_images):
-        images = []
-        for i in range(0, num_images):
-            image = cam.GetNextImage()
-            images.append(image)
-        return images
 
     def setup(self):
         self.system = PySpin.System.GetInstance()
@@ -106,7 +103,8 @@ class Process():
         reverse_y = False
         bit = 8
         # Get PySpin system
-        
+        if not os.path.exists(self.save_folder):
+	        os.mkdir(self.save_folder)
         print("Camera firmware version: " + self.cam.DeviceFirmwareVersion.ToString())
         # load default config
         self.cam.UserSetSelector.SetValue(PySpin.UserSetSelector_Default)
@@ -168,10 +166,12 @@ class Process():
                         np.save(self.save_folder + "Picture " + str(time.time()), image_np)  # Save as np array
                     if self.find_threshold_bool != -1:  # If the user wants to find the threshold, call method
                         threshold_img = self.find_threshold(self.cam, self.find_threshold_bool)
+                        threshold_img = threshold_img[:, :, 0]
                         self.find_threshold_bool = -1  # Make sure that the threshold is found only once
                     else:
                         threshold_img = cv2.imread(
                             self.save_folder + "Threshold.jpg")  # If the user doesn't want to create a threshold image, find one
+                        threshold_img = threshold_img[:, :, 0]
                     if self.threshold:
                         if self.multi:  # If user wants to use multiprocessing, call method with multiprocessing
                             multiprocessing_convert_image = multiprocessing.Process(target=self.convert_images,
@@ -195,6 +195,9 @@ class Process():
             try:
                 for i in range(0, self.num_images):  # Take n images
                     image = self.cam.GetNextImage()
+                    if image.IsIncomplete():
+                        print("Error: image is incomplete.")
+                        continue
                     image_np = np.copy(image.GetNDArray())  # Convert image to nd array
                     if self.save_jpg:  # If user wants to save image as .jpg, save as .jpg
                         cv2.imwrite(self.save_folder + "Picture " + str(time.time()) + ".jpg", image_np)
@@ -205,7 +208,7 @@ class Process():
                         self.find_threshold_bool = -1  # Make sure it only goes through this process once as it is expensive
                     else:
                         threshold_img = cv2.imread(
-                            self.save_folder + "Threshold.jpg")  # If they don't want to find a new threshold, pull the old one
+                            self.save_folder + "Threshold.jpg")  # If they don't want to find a new threshold, pull the old one\
                         threshold_img = threshold_img[:, :, 0]
                     if self.threshold:  # If they want thresholding,
                         if self.multi:  # If they want multiprocessing,
@@ -215,7 +218,7 @@ class Process():
                             multiprocessing_threshold_image.start()  # Start process
                         else:
                             self.convert_images(image_np, threshold_img)  # Otherwise, process in standard format
-                   
+                    print(image_np)
             except KeyboardInterrupt:  # If keyboard interrupt (ctrl+c) is found, kill loop and print message
                 print('Process interrupted.')
                 
