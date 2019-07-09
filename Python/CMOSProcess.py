@@ -1,5 +1,3 @@
-
-
 """CMOSProcess.py: Pulls images from FLIR CMOS Cameras and processes them for Plasma Spectroscopy."""
 
 __author__ = "Hunter Abraham"
@@ -13,15 +11,16 @@ __status__ = "Production"
 import numpy as np
 import argparse
 import datetime
-import PySpin
+#import PySpin
 import cv2
 import time
 import multiprocessing
 import os
+import bokeh
 
 
 class Process():
-    save_jpg = False  # Static methods to determine what "path" code will take
+    save_jpg = False  # Instance fields to determine what "path" code will take
     save_np = False
     threshold = False
     find_threshold_bool = -1
@@ -44,7 +43,7 @@ class Process():
             self.find_threshold_bool = find_threshold_bool
         if multi is not None:
             self.multi = multi
-        
+
     def find_threshold(self, image, num_images):
         t0 = time.time()
         print(cv2.__version__)
@@ -85,7 +84,6 @@ class Process():
         if self.save_np and self.threshold:  # If user wants to save image as .npp, save as .npp
             np.save(self.save_folder + "Processed Array " + str(time.time()), temp_image_to_be_thresholded)
 
-
     def setup(self):
         self.system = PySpin.System.GetInstance()
 
@@ -104,7 +102,7 @@ class Process():
         bit = 8
         # Get PySpin system
         if not os.path.exists(self.save_folder):
-	        os.mkdir(self.save_folder)
+            os.mkdir(self.save_folder)
         print("Camera firmware version: " + self.cam.DeviceFirmwareVersion.ToString())
         # load default config
         self.cam.UserSetSelector.SetValue(PySpin.UserSetSelector_Default)
@@ -161,7 +159,7 @@ class Process():
                     image_np = image.GetNDArray()
                     if self.save_jpg:  # If save as jpg is specified,
                         cv2.imwrite(self.save_folder + "Picture " + str(time.time()) + ".jpg",
-                                image_np)  # Save np as jpg
+                                    image_np)  # Save np as jpg
                     if self.save_np:  # Otherwise,
                         np.save(self.save_folder + "Picture " + str(time.time()), image_np)  # Save as np array
                     if self.find_threshold_bool != -1:  # If the user wants to find the threshold, call method
@@ -182,7 +180,7 @@ class Process():
                             multiprocessing_convert_image.start()
                         else:  # Otherwise, use single core
                             self.convert_images(image_np, threshold_img)
-                    
+
             except KeyboardInterrupt:  # If keyboard interrupt (ctrl+c) is found, kill loop and print message
                 print('Process interrupted.')
 
@@ -204,7 +202,8 @@ class Process():
                     if self.save_np:  # If user wants to save image as .npp, save as .npp
                         np.save(self.save_folder + "Picture " + str(time.time()) + ".jpg", image_np)
                     if self.find_threshold_bool != -1:  # If the user needs to find a threshold image,
-                        threshold_img = self.find_threshold(image_np, self.find_threshold_bool)  # Find a threshold image
+                        threshold_img = self.find_threshold(image_np,
+                                                            self.find_threshold_bool)  # Find a threshold image
                         self.find_threshold_bool = -1  # Make sure it only goes through this process once as it is expensive
                     else:
                         threshold_img = cv2.imread(
@@ -213,7 +212,7 @@ class Process():
                     if self.threshold:  # If they want thresholding,
                         if self.multi:  # If they want multiprocessing,
                             multiprocessing_threshold_image = multiprocessing.Process(target=self.convert_images, args=(
-                            image_np, threshold_img,))  # Create a call to multiprocessing
+                                image_np, threshold_img,))  # Create a call to multiprocessing
                             processes.append(multiprocessing_threshold_image)  # Append it to list of processes
                             multiprocessing_threshold_image.start()  # Start process
                         else:
@@ -221,11 +220,11 @@ class Process():
                     print(image_np)
             except KeyboardInterrupt:  # If keyboard interrupt (ctrl+c) is found, kill loop and print message
                 print('Process interrupted.')
-                
+
             if self.multi:  # If multiprocessing was used, clean up
                 for process_temp in processes:
                     process_temp.join()
-                    
+
         self.cam.EndAcquisition()
         self.cam.UserSetSelector.SetValue(PySpin.UserSetSelector_Default)
         self.cam.UserSetLoad()
@@ -235,16 +234,14 @@ class Process():
         self.system.ReleaseInstance()
 
 
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Parses arguments")  # Create argument parser
     parser.add_argument('--num', type=int,
                         help='number of images to collect')  # Positional argument to specify number of images
     parser.add_argument('--jpg', '--jpg', help='save image as jpg')  # Optional argument to save images as .jpg
     parser.add_argument('--np', '--np', help='save image as np array')  # Optional argument to save image as np array
     parser.add_argument('--t', '--threshold', help="threshold image")  # Optional argument to threshold image
-    
+
     parser.add_argument('--ft', '--ft', type=int, help='find threshold')  # Optional argument to find threshold image
     parser.add_argument('--multi', '--multi',
                         help='Determines whether multiprocessing should be used')  # Argument for using multiprocessing
@@ -253,6 +250,3 @@ if __name__ == "__main__":
                       args.multi)  # Create new process instance
 
     process.whole_capture()
-    
-    
-
