@@ -1,3 +1,13 @@
+__author__ = "Hunter Abraham"
+__credits__ = ["Adam Schoenwald"]
+__license__ = "GPL"
+__version__ = "1.0.1"
+__maintainer__ = "Hunter Abraham"
+__email__ = "hjabraham@wisc.edu"
+__status__ = "Archived"
+
+
+
 import PySpin, time, datetime
 import numpy as np
 from numba import *
