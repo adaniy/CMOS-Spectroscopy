@@ -1,3 +1,5 @@
+'''No longer used. Use CMOSProcess.py instead'''
+
 import PySpin, time, datetime
 import numpy as np
 from numba import *
