@@ -32,6 +32,7 @@ class Process():
     std = -1
 
     def __init__(self, save_jpg, save_np, threshold, num_images, find_threshold_bool, multi, std):
+        
         self.save_jpg = save_jpg
         self.save_np = save_np
         self.threshold = threshold
@@ -39,15 +40,7 @@ class Process():
         self.find_threshold_bool = find_threshold_bool
         self.multi = multi
         self.std = std
-        print("In CMOS")
-        print(self.save_jpg)
-        print(self.save_np)
-        print(self.threshold)
-        print(self.num_images)
-        print(self.find_threshold_bool)
-        print(self.multi)
-        print(self.std)
-
+      
     def find_threshold(self, image, num_images):
         t0 = time.time()
         width = image.shape[1]
@@ -59,14 +52,10 @@ class Process():
             temp_img = self.cam.GetNextImage()
             temp_img = temp_img.GetNDArray()
             images[i] = temp_img
-            print("Adding image " + str(i) + "...")
         try:
-            print("Calculating variance...")
             y = np.var(images, axis=0, dtype=np.dtype("uint16"))
-            print("Calculating square roots...")
             y = np.sqrt(y, dtype="float32")
-            print("Calculating standard deviations...")
-            img_dev = np.mean(images, axis=0) + (y * self.std)
+            img_dev = np.mean(images, axis=0) - (y * self.std)
         except KeyboardInterrupt:
             print("Program terminated.")
         t1 = time.time()
@@ -74,11 +63,11 @@ class Process():
         return img_dev
 
     def convert_images(self, temp_image_to_be_thresholded, temp_threshold, pic_num):
-        temp_image_to_be_thresholded[temp_image_to_be_thresholded > temp_threshold] = 255
-        temp_image_to_be_thresholded[temp_image_to_be_thresholded <= temp_threshold] = 0
-        if self.save_jpg and self.threshold:  # If user wants to save image as .jpg, save as .jpg
+        temp_image_to_be_thresholded[temp_image_to_be_thresholded < temp_threshold] = 255
+        temp_image_to_be_thresholded[temp_image_to_be_thresholded >= temp_threshold] = 0
+        if self.save_jpg:  # If user wants to save image as .jpg, save as .jpg
             cv2.imwrite(self.save_folder + 'Processed Picture' + str(pic_num) + '.jpg', temp_image_to_be_thresholded)
-        if self.save_np and self.threshold:  # If user wants to save image as .npp, save as .npp
+        if self.save_np:  # If user wants to save image as .npp, save as .npp
             np.save(self.save_folder + "Processed Array " + str(pic_num), temp_image_to_be_thresholded)
 
     def setup(self):
@@ -100,7 +89,6 @@ class Process():
         # Get PySpin system
         if not os.path.exists(self.save_folder):
             os.mkdir(self.save_folder)
-        print("Camera firmware version: " + self.cam.DeviceFirmwareVersion.ToString())
         # load default config
         self.cam.UserSetSelector.SetValue(PySpin.UserSetSelector_Default)
         self.cam.UserSetLoad()
@@ -140,20 +128,21 @@ class Process():
         threshold_img = None
         i = 0
         try:
+
             while True:  # Take n images
                 if i == self.num_images:
                     break
                 if i == 0:
                     image = self.cam.GetNextImage()
                     image_np = image.GetNDArray()
-                    if self.find_threshold_bool != -1:  # If the user needs to find a threshold image,
-                        threshold_img = self.find_threshold(image_np,
-                                                            self.find_threshold_bool)  # Find a threshold image
-                        self.find_threshold_bool = -1  # Make sure it only goes through this process once as it is expensive
-                    else:
-                        threshold_img = cv2.imread(
-                            "Images/Threshold.jpg")  # If they don't want to find a new threshold, pull the old one
-                        threshold_img = threshold_img[:, :, 0]
+                if self.find_threshold_bool != -1:  # If the user needs to find a threshold image,
+                    threshold_img = self.find_threshold(image_np,
+                                                        self.find_threshold_bool)  # Find a threshold image
+                    self.find_threshold_bool = -1  # Make sure it only goes through this process once as it is expensive
+                else:
+                    threshold_img = cv2.imread(
+                        "Images/Threshold.jpg")  # If they don't want to find a new threshold, pull the old one
+                    threshold_img = threshold_img[:, :, 0]
                 print("Capturing image " + str(i))
                 image = self.cam.GetNextImage()
                 if image.IsIncomplete():
@@ -161,17 +150,21 @@ class Process():
                     continue
                 image_np = np.copy(image.GetNDArray())  # Convert image to nd array
                 if self.threshold:  # If they want thresholding,
+                    print("Thresholding is being used.")
                     if self.multi:  # If they want multiprocessing,
+                        print("Multiprocessing is being used.")
                         multiprocessing_threshold_image = multiprocessing.Process(target=self.convert_images, args=(
                             image_np, threshold_img, i,))  # Create a call to multiprocessing
                         processes.append(multiprocessing_threshold_image)  # Append it to list of processes
                         multiprocessing_threshold_image.start()  # Start process
                     else:
                         self.convert_images(image_np, threshold_img, i)  # Otherwise, process in standard format
-                if self.save_jpg and self.threshold:  # If user wants to save image as .jpg, save as .jpg
-                    cv2.imwrite(self.save_folder + 'Unprocessed Picture' + str(i) + '.jpg',
-                                image)
-                if self.save_np and self.threshold:  # If user wants to save image as .npp, save as .npp
+                if self.save_jpg:  # If user wants to save image as .jpg, save as .jpg
+                    print("Saving as .jpg is being used")
+                    cv2.imwrite(self.save_folder + 'Unprocessed Picture ' + str(i) + '.jpg',
+                                image_np)
+                if self.save_np:  # If user wants to save image as .npy, save as .npy
+                    print("Saving as .npy is being used")
                     np.save(self.save_folder + "Unprocessed Array " + str(i), image_np)
                 del image
                 image_np = None
@@ -189,18 +182,19 @@ class Process():
         self.cam.DeInit()
         del self.cam
         self.system.ReleaseInstance()
+        print("Done.")
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Parses arguments")  # Create argument parser
     parser.add_argument('--num', type=int,
                         help='number of images to collect')  # Positional argument to specify number of images
-    parser.add_argument('--jpg', '--jpg', help='save image as jpg')  # Optional argument to save images as .jpg
-    parser.add_argument('--np', '--np', help='save image as np array')  # Optional argument to save image as np array
-    parser.add_argument('--t', '--threshold', help="threshold image")  # Optional argument to threshold image
+    parser.add_argument('--jpg', '--jpg', type=bool, help='save image as jpg')  # Optional argument to save images as .jpg
+    parser.add_argument('--np', '--np',type=bool, help='save image as np array')  # Optional argument to save image as np array
+    parser.add_argument('--t', '--threshold',type=bool, help="threshold image")  # Optional argument to threshold image
 
     parser.add_argument('--ft', '--ft', type=int, help='find threshold')  # Optional argument to find threshold image
-    parser.add_argument('--multi', '--multi',
+    parser.add_argument('--multi', '--multi',type=bool,
                         help='Determines whether multiprocessing should be used')  # Argument for using multiprocessing
     parser.add_argument('--std', '--std', type=int, help='number of standard deviations to threshold with')
     args = parser.parse_args()  # Parse arguments
