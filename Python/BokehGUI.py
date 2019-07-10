@@ -7,8 +7,6 @@ from bokeh.plotting import figure, curdoc
 from bokeh.plotting import figure, output_file, show
 from bokeh.models.widgets import TextInput, Toggle, Slider
 import os
-import CMOSProcess
-
 
 def save_jpg_handler(attr, old, new):
     settings['save_jpg'] = not settings['save_jpg']
@@ -94,6 +92,3 @@ std_slider.on_change("value", std_handler)
 curdoc().add_root(
     row(column(save_np_toggle, save_jpg_toggle, threshold_toggle, multi_toggle, find_threshold_bool_slider, std_slider,
                num_images_slider, run_button)))
-
-#input("Press any button when you are ready to process")
-
