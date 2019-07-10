@@ -30,6 +30,7 @@ class Process():
     system = None
     cam = None
     std = -1
+
     def __init__(self, save_jpg, save_np, threshold, num_images, find_threshold_bool, multi, std):
         self.save_jpg = save_jpg
         self.save_np = save_np
@@ -132,93 +133,60 @@ class Process():
             self.cam.AdcBitDepth.SetValue(PySpin.AdcBitDepth_Bit10)
             self.cam.PixelFormat.SetValue(PySpin.PixelFormat_Mono8)
         self.cam.BeginAcquisition()
-        
+
     def whole_capture(self):
         self.setup()
         processes = []
-        if self.num_images == -1:  # If number of images is not specified,
-            try:  # Continue until the program is interrupted
-                i = 0
-                while True:
-                    print("Capturing image " + str(i))
-                    image = self.cam.GetNextImage()  # Capture image
-                    image_np = image.GetNDArray()
-                    if self.save_jpg:  # If save as jpg is specified,
-                        cv2.imwrite(self.save_folder + "Picture " + str(i) + ".jpg",
-                                    image_np)  # Save np as jpg
-                    if self.save_np:  # Otherwise,
-                        np.save(self.save_folder + "Unprocessed Array " + str(i), image_np)  # Save as np array
-                    if self.find_threshold_bool != -1:  # If the user wants to find the threshold, call method
-                        threshold_img = self.find_threshold(self.cam, self.find_threshold_bool)
-                        threshold_img = threshold_img[:, :, 0]
-                        self.find_threshold_bool = -1  # Make sure that the threshold is found only once
-                    else:
-                        threshold_img = cv2.imread(
-                            self.save_folder + "Threshold.jpg")  # If the user doesn't want to create a threshold image, find one
-                        threshold_img = threshold_img[:, :, 0]
-                    if self.threshold:
-                        if self.multi:  # If user wants to use multiprocessing, call method with multiprocessing
-                            multiprocessing_convert_image = multiprocessing.Process(target=self.convert_images,
-                                                                                    args=(image_np, threshold_img, i))
-                            # append to list of processes
-                            processes.append(multiprocessing_convert_image)
-                            # start
-                            multiprocessing_convert_image.start()
-                        else:  # Otherwise, use single core
-                            self.convert_images(image_np, threshold_img, i)
-                    image = None
-                    image_nd = None
-            except KeyboardInterrupt:  # If keyboard interrupt (ctrl+c) is found, kill loop and print message
-                print('Process interrupted.')
-
-            if self.multi:  # Clean up multiprocessing if it was used
-                for process_temp in processes:
-                    process_temp.join()
-
-        else:  # If a number of images was specified,
-            processes = []
-            try:
-                for i in range(0, self.num_images):  # Take n images
-                    print("Capturing image " + str(i))
+        threshold_img = None
+        i = 0
+        try:
+            while True:  # Take n images
+                if i == self.num_images:
+                    break
+                if i == 0:
                     image = self.cam.GetNextImage()
-                    if image.IsIncomplete():
-                        print("Error: image is incomplete.")
-                        continue
-                    image_np = np.copy(image.GetNDArray())  # Convert image to nd array
-                    if self.save_jpg:  # If user wants to save image as .jpg, save as .jpg
-                        cv2.imwrite(self.save_folder + "Unprocessed Picture " + str(i) + ".jpg", image_np)
-                    if self.save_np:  # If user wants to save image as .npp, save as .npp
-                        np.save(self.save_folder + "Unprocessed Picture " + str(i) + ".jpg", image_np)
+                    image_np = image.GetNDArray()
                     if self.find_threshold_bool != -1:  # If the user needs to find a threshold image,
                         threshold_img = self.find_threshold(image_np,
                                                             self.find_threshold_bool)  # Find a threshold image
                         self.find_threshold_bool = -1  # Make sure it only goes through this process once as it is expensive
                     else:
                         threshold_img = cv2.imread(
-                            "Images/Threshold.jpg")  # If they don't want to find a new threshold, pull the old one\
+                            "Images/Threshold.jpg")  # If they don't want to find a new threshold, pull the old one
                         threshold_img = threshold_img[:, :, 0]
-                    if self.threshold:  # If they want thresholding,
-                        if self.multi:  # If they want multiprocessing,
-                            multiprocessing_threshold_image = multiprocessing.Process(target=self.convert_images, args=(
-                                image_np, threshold_img,i,))  # Create a call to multiprocessing
-                            processes.append(multiprocessing_threshold_image)  # Append it to list of processes
-                            multiprocessing_threshold_image.start()  # Start process
-                        else:
-                            self.convert_images(image_np, threshold_img, i)  # Otherwise, process in standard format
-                    image = None
-                    image_np = None
-            except KeyboardInterrupt:  # If keyboard interrupt (ctrl+c) is found, kill loop and print message
-                print('Process interrupted.')
+                print("Capturing image " + str(i))
+                image = self.cam.GetNextImage()
+                if image.IsIncomplete():
+                    print("Error: image is incomplete.")
+                    continue
+                image_np = np.copy(image.GetNDArray())  # Convert image to nd array
+                if self.threshold:  # If they want thresholding,
+                    if self.multi:  # If they want multiprocessing,
+                        multiprocessing_threshold_image = multiprocessing.Process(target=self.convert_images, args=(
+                            image_np, threshold_img, i,))  # Create a call to multiprocessing
+                        processes.append(multiprocessing_threshold_image)  # Append it to list of processes
+                        multiprocessing_threshold_image.start()  # Start process
+                    else:
+                        self.convert_images(image_np, threshold_img, i)  # Otherwise, process in standard format
+                if self.save_jpg and self.threshold:  # If user wants to save image as .jpg, save as .jpg
+                    cv2.imwrite(self.save_folder + 'Unprocessed Picture' + str(i) + '.jpg',
+                                image)
+                if self.save_np and self.threshold:  # If user wants to save image as .npp, save as .npp
+                    np.save(self.save_folder + "Unprocessed Array " + str(i), image_np)
+                del image
+                image_np = None
+                i += 1
+        except KeyboardInterrupt:  # If keyboard interrupt (ctrl+c) is found, kill loop and print message
+            print('Process interrupted.')
 
-            if self.multi:  # If multiprocessing was used, clean up
-                for process_temp in processes:
-                    process_temp.join()
+        if self.multi:  # If multiprocessing was used, clean up
+            for process_temp in processes:
+                process_temp.join()
 
         self.cam.EndAcquisition()
         self.cam.UserSetSelector.SetValue(PySpin.UserSetSelector_Default)
         self.cam.UserSetLoad()
         self.cam.DeInit()
-        del image
         del self.cam
         self.system.ReleaseInstance()
 
