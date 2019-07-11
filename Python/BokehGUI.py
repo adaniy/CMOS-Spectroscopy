@@ -35,6 +35,10 @@ def num_images_handler(attr, old, new):
     print(settings['num_images'])
 
 def run_button_handler(attr, old, new):
+    print("python3 CMOSProcess.py --jpg=" + str(settings['save_jpg']) + " --np=" + str(settings['save_np']) + " --t=" +
+              str(settings['threshold']) + " --ft=" + str(settings['find_threshold_bool']) + " --multi="
+              + str(settings['multi']) + " --num=" + str(settings['num_images']) + " --std=" + str(settings['std']))
+              
     os.system("python3 CMOSProcess.py --jpg=" + str(settings['save_jpg']) + " --np=" + str(settings['save_np']) + " --t=" +
               str(settings['threshold']) + " --ft=" + str(settings['find_threshold_bool']) + " --multi="
               + str(settings['multi']) + " --num=" + str(settings['num_images']) + " --std=" + str(settings['std']))
@@ -76,8 +80,6 @@ TOOLS = "crosshair,pan,wheel_zoom,box_zoom,reset,box_select,lasso_select"
 
 # create a new plot with the tools above, and explicit ranges
 p = figure(tools=TOOLS, x_range=(0, img.shape[1]), y_range=(0, img.shape[0]))
-print(np.where(img > 155)[0])
-print(np.where(img > 155)[1])
 # add a circle renderer with vectorized colors and sizes
 p.circle(np.where(img > 155)[0], np.where(img > 155)[1], radius=1, fill_color='green', fill_alpha=0.6)
 save_jpg_toggle.on_change("active", save_jpg_handler)
