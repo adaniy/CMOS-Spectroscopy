@@ -17,6 +17,7 @@ import time
 import multiprocessing
 import os
 import bokeh
+import matplotlib.pyplot as plt
 
 
 class Process():
@@ -46,16 +47,19 @@ class Process():
         height = image_threshold.shape[0]
         img_dev = np.empty((height, width))
         NUM_IMAGES = num_images
-        images_threshold = np.empty((NUM_IMAGES, height, width), dtype="float64")
+        images_threshold = np.empty((NUM_IMAGES, height, width), dtype="uint8")
         for i in range(0, NUM_IMAGES):
             temp_img = cam.GetNextImage()
             temp_img = temp_img.GetNDArray()
             images_threshold[i] = temp_img
         try:
             print("Thresholding...")
-            y = np.var(images_threshold, axis=0, dtype=np.dtype("float64"))
-            y = np.sqrt(y, dtype="float64")
-            img_dev = np.mean(images_threshold, axis=0) + (y * self.std)
+            y = np.var(images_threshold, axis=0, dtype=np.dtype("uint8"))
+            max_var = max(y.flatten())
+            y = np.sqrt(y, dtype="float32")
+            y = y.astype("uint8")
+            img_dev = np.mean(images_threshold, axis=0) + (y * self.std) + max_var
+
         except KeyboardInterrupt:
             print("Program terminated.")
         t1 = time.time()
@@ -75,7 +79,7 @@ class Process():
     def setup(self):
         exposure_time = 200  # in milliseconds
         capture_fps = 4.9
-        gain = 0  # ISO for digital cameras
+        gain = 11.  # ISO for digital cameras
         reverse_x = False
         reverse_y = False
         bit = 8
@@ -120,6 +124,9 @@ class Process():
         processes = []
         threshold_img = None
         i = 0
+        t = np.arange(self.num_images)
+        pixel_values = []
+        plt.ioff()
         try:
 
             while True:  # Take n images
@@ -128,8 +135,6 @@ class Process():
                 if i == 0:
                     image_first = cam.GetNextImage()
                     image_np_first = image_first.GetNDArray().astype("uint32")
-                    print(image_np_first.dtype)
-                    print(image_np_first.shape)
                 if self.find_threshold_bool != -1:  # If the user needs to find a threshold image,
                     threshold_img = self.find_threshold(image_np_first,
                                                         self.find_threshold_bool)  # Find a threshold image
@@ -144,6 +149,7 @@ class Process():
                     print("Error: image is incomplete.")
                     continue
                 image_np = np.copy(image.GetNDArray())  # Convert image to nd array
+                pixel_values.append(image_np[0][0])
                 if self.save_jpg:  # If user wants to save image as .tiff, save as .tiff
                     cv2.imwrite(self.save_folder + 'Unprocessed Picture ' + str(i) + '.tiff',
                                 image_np)
@@ -168,8 +174,12 @@ class Process():
             for process_temp in processes:
                 process_temp.join()
 
-       
-
+        fig, ax = plt.subplots()
+        ax.plot(t, pixel_values)
+        ax.set(xlabel='pixel #', ylabel='pixel value', title='Pixel value (0,0) over 1000 images')
+        plt.show()
+        plt.savefig('Plot at ' + str(time.time()) + '.png')
+        plt.close()
         print("Done.")
 
 
@@ -185,14 +195,6 @@ if __name__ == '__main__':
     parser.add_argument('--multi', default=False, type=lambda x: (str(x).lower() == 'true'))  # Argument for using multiprocessing
     parser.add_argument('--std', '--std', type=int, help='number of standard deviations to threshold with')
     args = parser.parse_args()  # Parse arguments
-    print("End")
-    print("self.save_jpg " + str(args.jpg))
-    print("self.save_np " + str(args.np))
-    print("self.threshold " + str(args.t))
-    print("self.num_images " + str(args.num))
-    print("self.find_threshold_bool " + str(args.ft))
-    print("self.multi " + str(args.multi))
-    print("self.std " + str(args.std))
     process = Process(args.jpg, args.np, args.t, args.num, args.ft,
                       args.multi, args.std)  # Create new process instance
     system = PySpin.System.GetInstance()
