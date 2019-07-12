@@ -143,7 +143,7 @@ class Process():
                 if image.IsIncomplete():
                     print("Error: image is incomplete.")
                     continue
-                image_np = image.GetNDArray()  # Convert image to nd array
+                image_np = np.copy(image.GetNDArray())  # Convert image to nd array
                 if self.save_jpg:  # If user wants to save image as .tiff, save as .tiff
                     cv2.imwrite(self.save_folder + 'Unprocessed Picture ' + str(i) + '.tiff',
                                 image_np)
