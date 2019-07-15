@@ -7,7 +7,6 @@ from bokeh.models.widgets import TextInput, Toggle, Slider, Button
 from bokeh.models.sources import ColumnDataSource
 import os
 import pandas as pd
-import CMOSProcess
 
 
 def save_jpg_handler(attr, old, new):
@@ -41,10 +40,14 @@ def num_images_handler(attr, old, new):
 
 
 def run_button_handler(attr, old, new):
+    print("python3 CMOSProcess.py --jpg=" + str(settings['save_jpg']) + " --np=" + str(settings['save_np']) + " --t=" +
+          str(settings['threshold']) + " --ft=" + str(settings['find_threshold_bool']) + " --multi="
+          + str(settings['multi']) + " --num=" + str(settings['num_images']) + " --std=" + str(settings['std']))
+
     os.system(
         "python3 CMOSProcess.py --jpg=" + str(settings['save_jpg']) + " --np=" + str(settings['save_np']) + " --t=" +
         str(settings['threshold']) + " --ft=" + str(settings['find_threshold_bool']) + " --multi="
-        + str(settings['multi']) + " --num=" + str(settings['num_images']) + " --std=" + str(settings['std']) + " &")
+        + str(settings['multi']) + " --num=" + str(settings['num_images']) + " --std=" + str(settings['std']))
 
 
 def std_handler(attr, old, new):
@@ -56,11 +59,9 @@ def animate_update():
     slider.value += 1
     global source
     global img
-    #image_data = cv2.imread("Processed Picture " + slider.value + ".tiff")
-    image_data = cv2.imread("Images/Processed Picture" + str(slider.value) + ".tiff")
+    print(img)
+    image_data = cv2.imread("Images/Processed Picture " + str(slider.value) + ".tiff")
     image_data = image_data[:,:,0]
-    np.delete(image_data, list(range(0, image_data.shape[1], 2)), axis=0) # Delete every other row to speed up image load
-    np.delete(image_data, list(range(0, image_data.shape[1], 2)), axis=1)
     image_data = np.flipud(image_data)
     source.data = dict(image=[image_data])
 
@@ -101,7 +102,7 @@ run_button = Toggle(active=False, label="Start collecting images", button_type="
 std_slider = Slider(start=0, end=20, value=3, title="How many standard deviations would you like to threshold with?")
 # prepare some data
 
-img = cv2.imread("Images/Threshold.tiff")
+img = cv2.imread("image.jpg")
 img = img[:, :, 0]
 img = np.flipud(img)
 images = [img]
@@ -113,7 +114,7 @@ TOOLS = "crosshair,pan,wheel_zoom,box_zoom,reset,box_select,lasso_select"
 source = ColumnDataSource(data=dict(image=[img]))
 
 # create a new plot with the tools above, and explicit ranges
-p = figure(tools=TOOLS, x_range=(0, img.shape[1]), y_range=(0, img.shape[0]))
+p = figure(tools=TOOLS, x_range=(0, img.shape[0]), y_range=(0, 255))
 # add a circle renderer with vectorized colors and sizes
 p.image(image='image', source=source, x=0, y=0, dw=img.shape[1], dh=img.shape[0], palette='Greys256')
 
