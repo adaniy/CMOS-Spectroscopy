@@ -1,3 +1,14 @@
+"""BokehGUI.py: Controls settings, streams images, and runs CMOSProcess.py"""
+
+__author__ = "Hunter Abraham"
+__credits__ = ["Adam Schoenwald"]
+__version__ = "1.0.1"
+__maintainer__ = "Hunter Abraham"
+__email__ = "hjabraham@wisc.edu"
+__status__ = "Production"
+
+
+
 import numpy as np
 import cv2
 from bokeh.io import curdoc
@@ -7,47 +18,39 @@ from bokeh.models.widgets import TextInput, Toggle, Slider, Button
 from bokeh.models.sources import ColumnDataSource
 import os
 import pandas as pd
+import CMOSProcess
 
 
 def save_jpg_handler(attr, old, new):
     settings['save_jpg'] = not settings['save_jpg']
-    print(settings['save_jpg'])
+
 
 
 def threshold_handler(attr, old, new):
     settings['threshold'] = not settings['threshold']
-    print(settings['threshold'])
 
 
 def save_np_handler(attr, old, new):
     settings['save_np'] = not settings['save_np']
-    print(settings['save_np'])
 
 
 def find_threshold_bool_handler(attr, old, new):
     settings['find_threshold_bool'] = find_threshold_bool_slider.value
-    print(settings['find_threshold_bool'])
 
 
 def multi_handler(attr, old, new):
     settings['multi'] = not settings['multi']
-    print(settings['multi'])
 
 
 def num_images_handler(attr, old, new):
     settings['num_images'] = num_images_slider.value
-    print(settings['num_images'])
 
 
 def run_button_handler(attr, old, new):
-    print("python3 CMOSProcess.py --jpg=" + str(settings['save_jpg']) + " --np=" + str(settings['save_np']) + " --t=" +
-          str(settings['threshold']) + " --ft=" + str(settings['find_threshold_bool']) + " --multi="
-          + str(settings['multi']) + " --num=" + str(settings['num_images']) + " --std=" + str(settings['std']))
-
     os.system(
         "python3 CMOSProcess.py --jpg=" + str(settings['save_jpg']) + " --np=" + str(settings['save_np']) + " --t=" +
         str(settings['threshold']) + " --ft=" + str(settings['find_threshold_bool']) + " --multi="
-        + str(settings['multi']) + " --num=" + str(settings['num_images']) + " --std=" + str(settings['std']))
+        + str(settings['multi']) + " --num=" + str(settings['num_images']) + " --std=" + str(settings['std']) + " &")
 
 
 def std_handler(attr, old, new):
@@ -59,9 +62,11 @@ def animate_update():
     slider.value += 1
     global source
     global img
-    print(img)
-    image_data = cv2.imread("Images/Processed Picture " + str(slider.value) + ".tiff")
+    #image_data = cv2.imread("Processed Picture " + slider.value + ".tiff")
+    image_data = cv2.imread("Images/Processed Picture" + str(slider.value) + ".tiff")
     image_data = image_data[:,:,0]
+    np.delete(image_data, list(range(0, image_data.shape[1], 2)), axis=0) # Delete every other row to speed up image load
+    np.delete(image_data, list(range(0, image_data.shape[1], 2)), axis=1)
     image_data = np.flipud(image_data)
     source.data = dict(image=[image_data])
 
@@ -102,7 +107,7 @@ run_button = Toggle(active=False, label="Start collecting images", button_type="
 std_slider = Slider(start=0, end=20, value=3, title="How many standard deviations would you like to threshold with?")
 # prepare some data
 
-img = cv2.imread("image.jpg")
+img = cv2.imread("Images/Threshold.tiff")
 img = img[:, :, 0]
 img = np.flipud(img)
 images = [img]
@@ -114,7 +119,7 @@ TOOLS = "crosshair,pan,wheel_zoom,box_zoom,reset,box_select,lasso_select"
 source = ColumnDataSource(data=dict(image=[img]))
 
 # create a new plot with the tools above, and explicit ranges
-p = figure(tools=TOOLS, x_range=(0, img.shape[0]), y_range=(0, 255))
+p = figure(tools=TOOLS, x_range=(0, img.shape[1]), y_range=(0, img.shape[0]))
 # add a circle renderer with vectorized colors and sizes
 p.image(image='image', source=source, x=0, y=0, dw=img.shape[1], dh=img.shape[0], palette='Greys256')
 
