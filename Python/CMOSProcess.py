@@ -2,7 +2,6 @@
 
 __author__ = "Hunter Abraham"
 __credits__ = ["Adam Schoenwald"]
-__license__ = "GPL"
 __version__ = "1.0.1"
 __maintainer__ = "Hunter Abraham"
 __email__ = "hjabraham@wisc.edu"
@@ -164,7 +163,6 @@ class Process():
                     else:
                         self.convert_images(image_np, threshold_img, i)  # Otherwise, process in standard format
                
-                del image
                 image_np = None
                 i += 1
         except KeyboardInterrupt:  # If keyboard interrupt (ctrl+c) is found, kill loop and print message
