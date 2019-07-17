@@ -52,7 +52,7 @@ class Process():
     def send_data(self, packet, image_number):
         new_packet = []
         new_sub_packet = []
-        new_packet.append(image_number)
+        new_packet.append(image_number)  # Append image number to first part of packet
         for i in range(0, len(packet[0] / self.PACKET_SIZE)):  # For each packet
             for j in range(0, self.PACKET_SIZE):  # For each pixel in packet
                 try:
@@ -195,8 +195,13 @@ class Process():
                     else:
                         packet_main = self.convert_images(image_np, threshold_img,
                                                           i)  # Otherwise, process in standard format
-                        if self.UDP_IP is not None and self.UDP_IP != "":
-                            self.send_data(packet_main, i)
+                        if self.UDP_IP is not None and self.UDP_IP != "":  # If the IP address is not None or 0 length
+                            multiprocessing_data_send = multiprocessing.Process(target=self.send_data,
+                                                                                args=(packet_main,
+                                                                                      i))  # Send the packets using multiprocessing
+                            processes.append(multiprocessing_data_send)
+                            multiprocessing_data_send.start()
+                            # self.send_data(packet_main, i)  # Send packets to that address
                 del image
                 image_np = None
                 i += 1
@@ -228,17 +233,17 @@ if __name__ == '__main__':
     args = parser.parse_args()  # Parse arguments
     process = Process(args.jpg, args.np, args.t, args.num, args.ft,
                       args.multi, args.std, args.address)  # Create new process instance
-    system = PySpin.System.GetInstance()
+    system = PySpin.System.GetInstance()  # Get camera system
     # Get camera list
-    cam_list = system.GetCameras()
-    if len(cam_list) == 0:
+    cam_list = system.GetCameras()  # Get all cameras
+    if len(cam_list) == 0:  # If no cameras exist, print error
         print("No cameras found.")
-    cam = cam_list.GetByIndex(0)
-    cam.Init()
-    process.whole_capture(cam)
-    cam.EndAcquisition()
-    cam.DeInit()
-    del cam
-    cam_list.Clear()
-    del cam_list
-    system.ReleaseInstance()
+    cam = cam_list.GetByIndex(0)  # Get first camera
+    cam.Init()  # Init first camera
+    process.whole_capture(cam)  # Capture, process, and stream images
+    cam.EndAcquisition()  # End acquisition
+    cam.DeInit()  # Deinit camera
+    del cam  # Delete cam object
+    cam_list.Clear()  # Clear cam list
+    del cam_list  # Delete cam list object
+    system.ReleaseInstance()  # Release system instance

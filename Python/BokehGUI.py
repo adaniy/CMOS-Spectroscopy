@@ -10,79 +10,80 @@ import pandas as pd
 
 
 def save_jpg_handler(attr, old, new):
-    settings['save_jpg'] = not settings['save_jpg']
-    if save_jpg_toggle.button_type == 'danger':
+    settings['save_jpg'] = not settings['save_jpg']  # Flip value of save_jpg
+    if save_jpg_toggle.button_type == 'danger':  # Change the button color from red to green or green to red
         save_jpg_toggle.button_type = 'success'
     else:
         save_jpg_toggle.button_type = 'danger'
 
 
 def threshold_handler(attr, old, new):
-    settings['threshold'] = not settings['threshold']
-    if threshold_toggle.button_type == 'danger':
+    settings['threshold'] = not settings['threshold']  # Flip the value of threshold
+    if threshold_toggle.button_type == 'danger':  # Change the button color from red to green or green to red
         threshold_toggle.button_type = 'success'
     else:
         threshold_toggle.button_type = 'danger'
 
 
 def save_np_handler(attr, old, new):
-    settings['save_np'] = not settings['save_np']
-    if save_np_toggle.button_type == 'success':
+    settings['save_np'] = not settings['save_np']  # Flip the value of save_np
+    if save_np_toggle.button_type == 'success':  # Change the button color from red to green or green to red
         save_np_toggle.button_type = 'danger'
     else:
         save_np_toggle.button_type = 'success'
 
 
 def find_threshold_bool_handler(attr, old, new):
-    settings['find_threshold_bool'] = find_threshold_bool_slider.value
+    settings[
+        'find_threshold_bool'] = find_threshold_bool_slider.value  # Set the value of the setting to the slider value
 
 
 def multi_handler(attr, old, new):
-    settings['multi'] = not settings['multi']
-    if multi_toggle.button_type == 'success':
+    settings['multi'] = not settings['multi']  # Flip the value of multi
+    if multi_toggle.button_type == 'success':  # Change the color of the button from green to red or red to green
         multi_toggle.button_type = 'danger'
     else:
         multi_toggle.button_type = 'success'
 
 
 def num_images_handler(attr, old, new):
-    settings['num_images'] = num_images_slider.value
+    settings['num_images'] = num_images_slider.value  # Set the value of num_images to the selected slider value
 
 
 def run_button_handler(attr, old, new):
-    if run_button.button_type == 'success':
+    if run_button.button_type == 'default':  # Change the run button color from blue to red or red to blue
         run_button.button_type = 'failure'
     else:
-        run_button.button_type = 'success'
+        run_button.button_type = 'default'
 
     os.system(
         "python3 CMOSProcess.py --jpg=" + str(settings['save_jpg']) + " --np=" + str(settings['save_np']) + " --t=" +
         str(settings['threshold']) + " --ft=" + str(settings['find_threshold_bool']) + " --multi="
         + str(settings['multi']) + " --num=" + str(settings['num_images']) + " --std=" + str(settings['std'])
-        + " --address=" + str(settings['packet_destination']) + " &")
+        + " --address=" + str(settings['packet_destination']) + " &")  # run command in OS
 
 
 def std_handler(attr, old, new):
-    settings['std'] = std_slider.value
+    settings['std'] = std_slider.value  # Change value of setting to selected slider value
 
 
 def animate_update():
-    slider.value += 1
-    global source
+    slider.value += 1  # Increase slider value
+    global source  # "Import" global values
     global img
-    image_data = cv2.imread("Images/Processed Picture " + str(slider.value) + ".tiff")
-    image_data = image_data[:, :, 0]
-    image_data = np.flipud(image_data)
-    source.data = dict(image=[image_data])
+    image_data = cv2.imread("Images/Processed Picture " + str(slider.value) + ".tiff")  # Read in next image
+    image_data = image_data[:, :, 0]  # Convert to mono
+    image_data = np.flipud(image_data)  # Flip right-side up
+    source.data = dict(image=[image_data])  # Update source
 
 
 def animate():
-    global callback_id
-    if button.label == 'Start streaming images':
+    global callback_id  # "Import" global values
+    if button.label == 'Start streaming images':  # If start is clicked, change button value and start periodic call
         button.label = 'Stop streaming images'
         callback_id = curdoc().add_periodic_callback(animate_update, 1000)
     else:
-        button.label = 'Start streaming images'
+        button.label = 'Start streaming images'  # If stop button is clicked, change button label and stop periodic call
         curdoc().remove_periodic_callback(callback_id)
 
 
@@ -120,12 +121,13 @@ def threshold_button_handler():
     settings['packet_destination'] = packet_destination_textbox.value
 
 
-packet_destination_textbox = TextInput(title="What address would you like to send the packet to?")
+packet_destination_textbox = TextInput(
+    title="What address would you like to send the packet to?")  # Create textinput for data packet address
 
-slider = Slider(start=0, end=1000, value=0, step=1, title="Picture (Do not touch)")
-button = Button(label='Start streaming images', width=60)
-button.on_click(animate)
-settings = {
+slider = Slider(start=0, end=1000, value=0, step=1, title="Picture (Do not touch)")  # Create slider to control image #
+button = Button(label='Start streaming images', width=60)  # Create button to start streaming images
+button.on_click(animate)  # On button click, call animate() method to stream images
+settings = {  # Control settings for CMOSProcess.py
     'save_jpg': False,
     'threshold': False,
     'save_np': False,
@@ -135,35 +137,44 @@ settings = {
     'std': 3,
     'packet_destination': packet_destination_textbox.value
 }
+# Create toggle for saving images as .jpgs or .tiffs
 save_jpg_toggle = Toggle(active=False, label="Do you want to save images as .jpgs?", button_type='danger')
+# Create toggle for saving images as .npy arrays
 save_np_toggle = Toggle(active=False, label='Do you want to save images as numpy arrays?', button_type="danger")
+# Create toggle for thresholding the images
 threshold_toggle = Toggle(active=False, label="Do you want to threshold images?", button_type="danger")
+# Create toggle for finding a new threshold image
 find_threshold_bool_slider = Slider(start=-1, end=300, value=-1, title="Do you want to find a new picture to be used"
                                                                        " for thresholding? If so, how many images would"
                                                                        " you like it to be composed of? Otherwise, "
                                                                        "leave at -1.")
+# Create toggle for using multiprocessing
 multi_toggle = Toggle(active=False, label='Do you want to use multiprocessing?', button_type="danger")
+# Create slider for the number of images to be captured
 num_images_slider = Slider(start=-1, end=300, value=-1, title='How many images would you like to take? Leave at -1 for '
                                                               'images to be taken until manually stopped.')
+# Create button to run the program
 run_button = Toggle(active=False, label="Start collecting images", button_type="primary")
+# Create slider to control the number of standard deviations
 std_slider = Slider(start=0, end=20, value=3, title="How many standard deviations would you like to threshold with?")
+# Create button for "science" mode
 science_button = Button(label="Science Mode", width=60)
+# Create button for "threshold" mode
 threshold_button = Button(label="Threshold Mode", width=60)
-
+# Assign handlers to buttons and toggles(glyphs in general) a.k.a. when button is clicked, this method will be called
 threshold_button.on_click(threshold_button_handler)
 button.on_click(science_button_handler)
 science_button.on_click(science_button_handler)
 # prepare some data
-
 img = cv2.imread("Images/Threshold.tiff")
-img = img[:, :, 0]
-img = np.flipud(img)
-images = [img]
-x_vals = np.arange(0, img.shape[0])
+img = img[:, :, 0] # Make image mono
+img = np.flipud(img) # Flip right-side up
+
 # output to static HTML file (with CDN resources)
 output_file("CMOS_Sensor.html", title="BokehGUI.py example", mode="cdn")
-
+# Assign tools that can be used in the figure
 TOOLS = "crosshair,pan,wheel_zoom,box_zoom,reset,box_select,lasso_select"
+# Create ColumnDataSource for image
 source = ColumnDataSource(data=dict(image=[img]))
 
 # create a new plot with the tools above, and explicit ranges
@@ -171,6 +182,7 @@ p = figure(tools=TOOLS, x_range=(0, img.shape[0]), y_range=(0, 255))
 # add a circle renderer with vectorized colors and sizes
 p.image(image='image', source=source, x=0, y=0, dw=img.shape[1], dh=img.shape[0], palette='Greys256')
 
+# Assign handlers to buttons and toggles (glyphs in general) a.k.a. when glyph is modified, call this method
 save_jpg_toggle.on_change("active", save_jpg_handler)
 save_np_toggle.on_change("active", save_np_handler)
 threshold_toggle.on_change("active", threshold_handler)
@@ -179,7 +191,7 @@ find_threshold_bool_slider.on_change("value", find_threshold_bool_handler)
 run_button.on_change("active", run_button_handler)
 num_images_slider.on_change("value", num_images_handler)
 std_slider.on_change("value", std_handler)
-# show the results
+# Display GUI
 curdoc().add_root(
     row(column(save_np_toggle, save_jpg_toggle, threshold_toggle, multi_toggle, find_threshold_bool_slider, std_slider,
                num_images_slider, run_button, p, slider, button), column(threshold_button, science_button,
