@@ -155,7 +155,7 @@ button.on_click(science_button_handler)
 science_button.on_click(science_button_handler)
 # prepare some data
 
-img = cv2.imread("image.jpg")
+img = cv2.imread("Images/Threshold.tiff")
 img = img[:, :, 0]
 img = np.flipud(img)
 images = [img]
