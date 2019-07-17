@@ -20,7 +20,6 @@ import bokeh
 import pickle
 import socket
 
-
 class Process():
     save_jpg = False  # Instance fields to determine what "path" code will take, for example:
     # Should images be saved or not?
@@ -185,7 +184,8 @@ class Process():
                     cv2.imwrite(self.save_folder + 'Unprocessed Picture ' + str(i) + '.tiff',
                                 image_np)
                 if self.save_np:  # If user wants to save image as .npy, save as .npy
-                    np.save(self.save_folder + "Unprocessed Array " + str(i), image_np)
+                    np.save(self.save_folder + "Unprocessed Arry " + str(i), image_np)
+
                 if self.threshold:  # If they want thresholding,
                     if self.multi:  # If they want multiprocessing,
                         multiprocessing_threshold_image = multiprocessing.Process(target=self.convert_images, args=(

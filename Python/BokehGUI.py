@@ -6,6 +6,7 @@ from bokeh.plotting import figure, output_file, show
 from bokeh.models.widgets import TextInput, Toggle, Slider, Button
 from bokeh.models.sources import ColumnDataSource
 import os
+import json
 import pandas as pd
 
 
@@ -51,10 +52,10 @@ def num_images_handler(attr, old, new):
 
 
 def run_button_handler(attr, old, new):
-    if run_button.button_type == 'default':  # Change the run button color from blue to red or red to blue
+    if run_button.button_type == 'primary':  # Change the run button color from blue to red or red to blue
         run_button.button_type = 'failure'
     else:
-        run_button.button_type = 'default'
+        run_button.button_type = 'primary'
 
     os.system(
         "python3 CMOSProcess.py --jpg=" + str(settings['save_jpg']) + " --np=" + str(settings['save_np']) + " --t=" +
@@ -101,8 +102,11 @@ def science_button_handler():
     save_np_toggle.button_type = 'danger'
     settings['save_np'] = False
     settings['find_threshold_bool'] = -1
+    find_threshold_bool_slider.value = -1
     settings['num_images'] = -1
+    num_images_slider.value = -1
     settings['std'] = 3
+    std_slider.value = -1
     settings['packet_destination'] = packet_destination_textbox.value
 
 
@@ -120,6 +124,60 @@ def threshold_button_handler():
     settings['std'] = 3
     settings['packet_destination'] = packet_destination_textbox.value
 
+def save_settings():
+    global settings_json
+    json_f = json.dumps(settings_json) # dump dict as string
+    f = open("/imageprocess.json", "w") # open json that holds settings
+    f.write(json_f) # write new settings to file
+    f.close() # close file
+
+
+def load_settings():
+    global settings_json
+    global json_file
+    # open file
+    f = open("imageprocess.json")
+    # Turn it into a dictionary
+    settings_json = dict(json.load(f))
+
+    # Go through each setting and adjust both the value in the dictionary and the way it is represented in the GUI
+    if settings_json['save_jpg'] == 'True':
+        settings_json['save_jpg'] = True
+        save_jpg_toggle.button_type='success'
+    else:
+        settings_json['save_jpg'] = False
+        save_jpg_toggle.button_type='danger'
+
+    if settings_json['threshold'] == 'True':
+        settings_json['threshold'] = True
+        threshold_toggle.button_type = 'success'
+    else:
+        settings_json['threshold'] = False
+        threshold_toggle.button_type = 'danger'
+
+    if settings_json['save_np'] == 'True':
+        settings_json['save_np'] = True
+        save_np_toggle.button_type='success'
+    else:
+        settings_json['save_np'] = False
+        save_np_toggle.button_type='danger'
+
+    if settings_json['multi'] == 'True':
+        settings_json['multi'] = True
+        multi_toggle.button_type = 'success'
+    else:
+        settings_json['multi'] = False
+        multi_toggle.button_type = 'danger'
+
+    settings_json['find_threshold_bool'] = int(settings_json['find_threshold_bool'])
+    find_threshold_bool_slider.value = int(settings_json['find_threshold_bool'])
+
+    settings_json['num_images'] = int(settings_json['num_images'])
+    num_images_slider.value = int(settings_json['num_images'])
+
+    settings_json['std'] = int(settings_json['std'])
+    std_slider.value = int(settings['std'])
+
 
 packet_destination_textbox = TextInput(
     title="What address would you like to send the packet to?")  # Create textinput for data packet address
@@ -127,36 +185,52 @@ packet_destination_textbox = TextInput(
 slider = Slider(start=0, end=1000, value=0, step=1, title="Picture (Do not touch)")  # Create slider to control image #
 button = Button(label='Start streaming images', width=60)  # Create button to start streaming images
 button.on_click(animate)  # On button click, call animate() method to stream images
-settings = {  # Control settings for CMOSProcess.py
-    'save_jpg': False,
-    'threshold': False,
-    'save_np': False,
-    'find_threshold_bool': -1,
-    'multi': False,
-    'num_images': -1,
-    'std': 3,
-    'packet_destination': packet_destination_textbox.value
-}
+json_file = json.load(open('/imageprocess.json'))
+settings_json = dict(json_file)
 # Create toggle for saving images as .jpgs or .tiffs
-save_jpg_toggle = Toggle(active=False, label="Do you want to save images as .jpgs?", button_type='danger')
+if settings_json['save_jpg'] == 'True':
+    save_jpg_toggle = Toggle(active=True, label='Do you want to save images as .jpgs?', button_type='success')
+    settings_json['save_jpg'] = True
+else:
+    save_jpg_toggle = Toggle(active=False, label='Do you want to save images as .jpgs?', button_type='danger')
+    settings_json['save_jpg'] = False
+
+
 # Create toggle for saving images as .npy arrays
-save_np_toggle = Toggle(active=False, label='Do you want to save images as numpy arrays?', button_type="danger")
+if settings_json['save_np'] == 'True':
+    save_jpg_toggle = Toggle(active=True, label='Do you want to save images as .npy arrays', button_type='success')
+    settings_json['save_np'] = False
+else:
+    save_jpg_toggle = Toggle(active=False, label='Do you want to save images as .npy arrays', button_type='danger')
+    settings_json['save_np'] = False
 # Create toggle for thresholding the images
-threshold_toggle = Toggle(active=False, label="Do you want to threshold images?", button_type="danger")
-# Create toggle for finding a new threshold image
-find_threshold_bool_slider = Slider(start=-1, end=300, value=-1, title="Do you want to find a new picture to be used"
-                                                                       " for thresholding? If so, how many images would"
-                                                                       " you like it to be composed of? Otherwise, "
-                                                                       "leave at -1.")
+if settings_json['threshold'] == 'True':
+    threshold_toggle = Toggle(active=True, label='Do you want to threshold images?', button_type='success')
+    settings_json['threshold'] = True
+else:
+    threshold_toggle = Toggle(active=False, label='Do you want to threshold images?', button_type='success')
+    settings_json['threshold'] = False
+
+# Create slider for finding a new threshold image
+find_threshold_bool_slider = Slider(start=-1, end=300, value=int(settings_json['find_threshold_bool']), title='How many'
+                                     ' images would you like to use to find new threshold image? Enter -1 to use current'
+                                                                                                              'image.')
 # Create toggle for using multiprocessing
-multi_toggle = Toggle(active=False, label='Do you want to use multiprocessing?', button_type="danger")
+if settings_json['multi'] == 'True':
+    multi_toggle = Toggle(active=True, label='Do you want to use multiprocessing?', button_type='success')
+    settings_json['multi'] = True
+else:
+    multi_toggle = Toggle(active=False, label='Do you want to use multiprocessing?', button_type='danger')
+    settings_json['multi'] = False
+load_settings_button = Button(label='load settings from imageprocess.json', width=60)
+save_settings_button = Button(label-'save settings to imageprocess.json', width=60)
 # Create slider for the number of images to be captured
-num_images_slider = Slider(start=-1, end=300, value=-1, title='How many images would you like to take? Leave at -1 for '
+num_images_slider = Slider(start=-1, end=300, value=int(settings_json['num_images']), title='How many images would you like to take? Leave at -1 for '
                                                               'images to be taken until manually stopped.')
 # Create button to run the program
 run_button = Toggle(active=False, label="Start collecting images", button_type="primary")
 # Create slider to control the number of standard deviations
-std_slider = Slider(start=0, end=20, value=3, title="How many standard deviations would you like to threshold with?")
+std_slider = Slider(start=0, end=20, value=int(settings_json['std']), title="How many standard deviations would you like to threshold with?")
 # Create button for "science" mode
 science_button = Button(label="Science Mode", width=60)
 # Create button for "threshold" mode
@@ -191,6 +265,8 @@ find_threshold_bool_slider.on_change("value", find_threshold_bool_handler)
 run_button.on_change("active", run_button_handler)
 num_images_slider.on_change("value", num_images_handler)
 std_slider.on_change("value", std_handler)
+save_settings_button.on_click(save_settings)
+load_settings_button.on_click(load_settings)
 # Display GUI
 curdoc().add_root(
     row(column(save_np_toggle, save_jpg_toggle, threshold_toggle, multi_toggle, find_threshold_bool_slider, std_slider,
