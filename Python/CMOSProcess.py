@@ -14,11 +14,14 @@ import datetime
 import PySpin
 import cv2
 import time
+import sys
 import multiprocessing
 import os
 import bokeh
 import pickle
 import socket
+import math
+import struct
 
 class Process():
     save_jpg = False  # Instance fields to determine what "path" code will take, for example:
@@ -31,11 +34,10 @@ class Process():
     save_folder = "Images/"
     system = None
     std = -1
-    UDP_IP = "127.0.0.1"  # Change IP to send packets to
-    UDP_PORT = 5005
-    sock = socket.socket(socket.AF_INET,  # Internet
-                         socket.SOCK_DGRAM)  # UDP
-    PACKET_SIZE = 256
+    UDP_IP = ""  # Change IP to send packets to
+    UDP_PORT = 7000
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    PACKET_SIZE = 1024
 
     def __init__(self, save_jpg, save_np, threshold, num_images, find_threshold_bool, multi, std, address):
 
@@ -48,23 +50,28 @@ class Process():
         self.std = std
         self.UDP_IP = address
 
-    def send_data(self, packet, image_number):
-        new_packet = []
-        new_sub_packet = []
-        new_packet.append(image_number)  # Append image number to first part of packet
-        for i in range(0, len(packet[0] / self.PACKET_SIZE)):  # For each packet
-            for j in range(0, self.PACKET_SIZE):  # For each pixel in packet
-                try:
-                    new_sub_packet.append(packet[0][i * self.PACKET_SIZE + j])  # Add pixel value
-                    new_sub_packet.append(packet[1][i * self.PACKET_SIZE + j])  # Add pixel x coordinate
-                    new_sub_packet.append(packet[2][i * self.PACKET_SIZE + j])  # Add pixel y coordinate
-                    new_packet.append(new_sub_packet)  # Append subvalue to packet
-                except IndexError:
-                    continue
-            send_data = pickle.dumps(new_packet)  # convert list to byte-type
-            self.sock.sendto(send_data, (self.UDP_IP, self.UDP_PORT))  # Send to port
-            new_packet = []  # Reset packets
-            new_sub_packet = []
+    def send_data(self, pixels, pixel_values, image_number):
+        num_packets = 0
+        num_pixels = 0
+        packet = [image_number]
+        for pixel in pixel_values:
+            pixel_val = pixel
+            pixel_x_coordinate = pixels[0][num_pixels]
+            pixel_y_coordinate = pixels[1][num_pixels]
+            #pixel_prepped_for_packet = (image_number, pixel_val, pixel_x_coordinate, pixel_y_coordinate)
+            #packet.append(pixel_prepped_for_packet)
+            num_pixels += 1
+            #if num_pixels % 10 == 0 or num_pixels == len(pixel_values) - 2:
+            packet.append(pixel_val)
+            packet.append(pixel_x_coordinate)
+            packet.append(pixel_y_coordinate)
+            if sys.getsizeof(packet) > self.PACKET_SIZE:
+                send_data = struct.pack("%sh" % (len(packet)), *packet)  # convert list to byte-type
+                self.sock.connect((self.UDP_IP, self.UDP_PORT))
+                self.sock.send(send_data)  # Send to port
+                packet = [image_number]
+                num_packets += 1
+        print("Sent " + str(num_packets) + " packets.")
 
     def find_threshold(self, image_threshold, num_images):
         width = image_threshold.shape[1]  # Find dimensions of the image
@@ -77,14 +84,16 @@ class Process():
         images_threshold = np.empty((NUM_IMAGES, height, width), dtype="float64")
         for i in range(0, NUM_IMAGES):  # Take the number of pictures to be used for finding standard deviations
             temp_img = cam.GetNextImage()  # Take the picture
-            temp_img = temp_img.GetNDArray()  # Get a numpy array from it
+            temp_img = np.copy(temp_img.GetNDArray())  # Get a numpy array from it
+            temp_img = temp_img.astype('int8')
             images_threshold[i] = temp_img  # Add the numpy array to the array of images
         try:
             print("Thresholding...")
             y = np.var(images_threshold, axis=0, dtype=np.dtype("float64"))  # Find variance of the images
+            max_var = max(y.flatten())
             y = np.sqrt(y, dtype="float64")  # Find square root of the variance (faster than np.std())
             # Add the mean pixel value to the standard deviation multiplied by the sigma multiple
-            img_dev = np.mean(images_threshold, axis=0) + (y * self.std)
+            img_dev = np.mean(images_threshold, axis=0) + (y * self.std) + max_var
         except KeyboardInterrupt:
             print("Program terminated.")
         np.clip(img_dev, 0, 255)  # Make sure all values are between 0 and 255 ( Range of pixel values )
@@ -95,19 +104,22 @@ class Process():
 
     def convert_images(self, temp_image_to_be_thresholded, temp_threshold, pic_num):
         # Replace all values greater than the threshold with a purely white pixel
-        packet = []
-        pixels = np.where(temp_image_to_be_thresholded > temp_threshold)
+        pixels = np.where(temp_image_to_be_thresholded > temp_threshold,)
         pixel_values = temp_image_to_be_thresholded[pixels]
-        packet.append(pixels)
-        packet.append(pixel_values)
+        pixels = list(pixels)
+        pixels[0] = pixels[0].astype("int16")
+        pixels[1] = pixels[1].astype("int16")
+        pixel_values = pixel_values.astype("int8")
+
         temp_image_to_be_thresholded[temp_image_to_be_thresholded > temp_threshold] = 255
         # Replace all values less than the threshold with a purely black pixel
         temp_image_to_be_thresholded[temp_image_to_be_thresholded <= temp_threshold] = 0
         if self.save_jpg:  # If user wants to save image as .tiff, save as .tiff
             cv2.imwrite(self.save_folder + 'Processed Picture' + str(pic_num) + '.tiff', temp_image_to_be_thresholded)
         if self.save_np:  # If user wants to save image as .npp, save as .npp
-            np.save(self.save_folder + "Processed Array " + str(pic_num), temp_image_to_be_thresholded)
-        return packet
+            np.save(self.
+            save_folder + "Processed Array " + str(pic_num), temp_image_to_be_thresholded)
+        return pixels, pixel_values
 
     def setup(self):
         exposure_time = 200  # in milliseconds
@@ -179,7 +191,7 @@ class Process():
                 if image.IsIncomplete():  # If its incomplete, try again
                     print("Error: image is incomplete.")
                     continue
-                image_np = image.GetNDArray()  # Convert image to nd array
+                image_np = np.copy(image.GetNDArray())  # Convert image to nd array
                 if self.save_jpg:  # If user wants to save image as .tiff, save as .tiff
                     cv2.imwrite(self.save_folder + 'Unprocessed Picture ' + str(i) + '.tiff',
                                 image_np)
@@ -193,15 +205,15 @@ class Process():
                         processes.append(multiprocessing_threshold_image)  # Append it to list of processes
                         multiprocessing_threshold_image.start()  # Start process
                     else:
-                        packet_main = self.convert_images(image_np, threshold_img,
+                        pixel_coords, pixel_vals = self.convert_images(image_np, threshold_img,
                                                           i)  # Otherwise, process in standard format
                         if self.UDP_IP is not None and self.UDP_IP != "":  # If the IP address is not None or 0 length
-                            multiprocessing_data_send = multiprocessing.Process(target=self.send_data,
-                                                                                args=(packet_main,
-                                                                                      i))  # Send the packets using multiprocessing
-                            processes.append(multiprocessing_data_send)
-                            multiprocessing_data_send.start()
-                            # self.send_data(packet_main, i)  # Send packets to that address
+                            #multiprocessing_data_send = multiprocessing.Process(target=self.send_data,
+                             #                                                   args=(packet_main,
+                              #                                                        i))  # Send the packets using multiprocessing
+                            #processes.append(multiprocessing_data_send)
+                            #multiprocessing_data_send.start()
+                            self.send_data(pixel_coords, pixel_vals, i)  # Send packets to that address
                 del image
                 image_np = None
                 i += 1
