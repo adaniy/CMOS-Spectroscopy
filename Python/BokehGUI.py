@@ -1,280 +1,261 @@
+"""CMOSProcess.py: Pulls images from FLIR CMOS Cameras and processes them for Plasma Spectroscopy."""
+
+__author__ = "Hunter Abraham"
+__credits__ = ["Adam Schoenwald"]
+__license__ = "GPL"
+__version__ = "1.0.1"
+__maintainer__ = "Hunter Abraham"
+__email__ = "hjabraham@wisc.edu"
+__status__ = "Production"
+
 import numpy as np
+import argparse
+import datetime
+import PySpin
 import cv2
-from bokeh.io import curdoc
-from bokeh.layouts import column, row
-from bokeh.plotting import figure, output_file, show
-from bokeh.models.widgets import TextInput, Toggle, Slider, Button
-from bokeh.models.sources import ColumnDataSource
+import time
+import sys
+import multiprocessing
 import os
-import json
-import pandas as pd
+import bokeh
+import pickle
+import socket
+import math
+import struct
+
+class Process():
+    save_jpg = False  # Instance fields to determine what "path" code will take, for example:
+    # Should images be saved or not?
+    save_np = False
+    threshold = False
+    find_threshold_bool = -1
+    multi = False
+    num_images = -1
+    save_folder = "Images/"
+    system = None
+    std = -1
+    UDP_IP = ""  # Change IP to send packets to
+    UDP_PORT = 7000
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    PACKET_SIZE = 1024
+
+    def __init__(self, save_jpg, save_np, threshold, num_images, find_threshold_bool, multi, std, address):
+
+        self.save_jpg = save_jpg
+        self.save_np = save_np
+        self.threshold = threshold
+        self.num_images = num_images
+        self.find_threshold_bool = find_threshold_bool
+        self.multi = multi
+        self.std = std
+        self.UDP_IP = address
+
+    def send_data(self, pixels, pixel_values, image_number):
+        num_packets = 0
+        num_pixels = 0
+        packet = [image_number]
+        for pixel in pixel_values:
+            pixel_val = pixel
+            pixel_x_coordinate = pixels[0][num_pixels]
+            pixel_y_coordinate = pixels[1][num_pixels]
+            #pixel_prepped_for_packet = (image_number, pixel_val, pixel_x_coordinate, pixel_y_coordinate)
+            #packet.append(pixel_prepped_for_packet)
+            num_pixels += 1
+            #if num_pixels % 10 == 0 or num_pixels == len(pixel_values) - 2:
+            packet.append(pixel_val)
+            packet.append(pixel_x_coordinate)
+            packet.append(pixel_y_coordinate)
+            if sys.getsizeof(packet) > self.PACKET_SIZE:
+                send_data = struct.pack("%sh" % (len(packet)), *packet)  # convert list to byte-type
+                self.sock.connect((self.UDP_IP, self.UDP_PORT))
+                self.sock.send(send_data)  # Send to port
+                packet = [image_number]
+                num_packets += 1
+        print("Sent " + str(num_packets) + " packets.")
+
+    def find_threshold(self, image_threshold, num_images):
+        width = image_threshold.shape[1]  # Find dimensions of the image
+        height = image_threshold.shape[0]
+        img_dev = np.empty((height, width))  # Create an empty array to hold the final threshold image
+        NUM_IMAGES = num_images
+        # Create an empty array that will
+        # Contain all of the images that will be used for finding standard deviations
+        # It should be deep enough to hold all images, with the height and width at the dimensions of the image
+        images_threshold = np.empty((NUM_IMAGES, height, width), dtype="float64")
+        for i in range(0, NUM_IMAGES):  # Take the number of pictures to be used for finding standard deviations
+            temp_img = cam.GetNextImage()  # Take the picture
+            temp_img = np.copy(temp_img.GetNDArray())  # Get a numpy array from it
+            temp_img = temp_img.astype('int8')
+            images_threshold[i] = temp_img  # Add the numpy array to the array of images
+        try:
+            print("Thresholding...")
+            y = np.var(images_threshold, axis=0, dtype=np.dtype("float64"))  # Find variance of the images
+            max_var = max(y.flatten())
+            y = np.sqrt(y, dtype="float64")  # Find square root of the variance (faster than np.std())
+            # Add the mean pixel value to the standard deviation multiplied by the sigma multiple
+            img_dev = np.mean(images_threshold, axis=0) + (y * self.std) + max_var
+        except KeyboardInterrupt:
+            print("Program terminated.")
+        np.clip(img_dev, 0, 255)  # Make sure all values are between 0 and 255 ( Range of pixel values )
+        cv2.imwrite("Images/Threshold.tiff", img_dev)  # Save image to file
+        print("Done thresholding")
+        # Return the image, which is the mean image of all images taken plus the number of std deviations
+        return img_dev
+
+    def convert_images(self, temp_image_to_be_thresholded, temp_threshold, pic_num):
+        # Replace all values greater than the threshold with a purely white pixel
+        pixels = np.where(temp_image_to_be_thresholded > temp_threshold,)
+        pixel_values = temp_image_to_be_thresholded[pixels]
+        pixels = list(pixels)
+        pixels[0] = pixels[0].astype("int16")
+        pixels[1] = pixels[1].astype("int16")
+        pixel_values = pixel_values.astype("int8")
+
+        temp_image_to_be_thresholded[temp_image_to_be_thresholded > temp_threshold] = 255
+        # Replace all values less than the threshold with a purely black pixel
+        temp_image_to_be_thresholded[temp_image_to_be_thresholded <= temp_threshold] = 0
+        if self.save_jpg:  # If user wants to save image as .tiff, save as .tiff
+            cv2.imwrite(self.save_folder + 'Processed Picture' + str(pic_num) + '.tiff', temp_image_to_be_thresholded)
+        if self.save_np:  # If user wants to save image as .npp, save as .npp
+            np.save(self.
+            save_folder + "Processed Array " + str(pic_num), temp_image_to_be_thresholded)
+        return pixels, pixel_values
+
+    def setup(self):
+        exposure_time = 200  # in milliseconds
+        capture_fps = 4.9
+        gain = 0  # ISO for digital cameras
+        reverse_x = False
+        reverse_y = False
+        bit = 8
+        # Get PySpin system
+        if not os.path.exists(self.save_folder):
+            os.mkdir(self.save_folder)
+        # load default config
+        cam.UserSetSelector.SetValue(PySpin.UserSetSelector_Default)
+        cam.UserSetLoad()
+        # set acquisition to continuous, turn off auto exposure, set the frame rate
+        # Camera Settings
+        # Set Packet Size
+        cam.GevSCPSPacketSize.SetValue(9000)
+        cam.DeviceLinkThroughputLimit.SetValue(125000000)
+        # Set acquistion mode
+        cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
+        # Set exposure time
+        cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
+        cam.ExposureMode.SetValue(PySpin.ExposureMode_Timed)
+        cam.ExposureTime.SetValue(exposure_time * 1e3)
+        # Set FPS
+        cam.AcquisitionFrameRateEnable.SetValue(True)
+        cam.AcquisitionFrameRate.SetValue(capture_fps)
+        # set analog, gain, turn off gamma
+        cam.GainAuto.SetValue(PySpin.GainAuto_Off)
+        cam.Gain.SetValue(gain)
+        cam.GammaEnable.SetValue(False)
+        cam.ReverseX.SetValue(reverse_x)
+        cam.ReverseY.SetValue(reverse_y)
+        if bit > 8:  # If requested bit level is above 8, make it 16
+            image_bit = 16
+            cam.AdcBitDepth.SetValue(PySpin.AdcBitDepth_Bit12)
+            cam.PixelFormat.SetValue(PySpin.PixelFormat_Mono12p)
+        else:  # Otherwise, make it 8
+            image_bit = 8
+            cam.AdcBitDepth.SetValue(PySpin.AdcBitDepth_Bit10)
+            cam.PixelFormat.SetValue(PySpin.PixelFormat_Mono8)
+        cam.BeginAcquisition()
+
+    def whole_capture(self, cam):
+        self.setup()
+        processes = []
+        threshold_img = None
+        i = 0
+        try:
+
+            while True:  # Take n images
+                # If we have taken the desired number of images, break loop
+                if i == self.num_images:
+                    break
+                if i == 0:  # If it's the first image being taken,
+                    image_first = cam.GetNextImage()  # Take a sample photo to be used for the find_threshold() method
+                    image_np_first = image_first.GetNDArray().astype("uint32")
+                if self.find_threshold_bool != -1:  # If the user needs to find a threshold image,
+                    threshold_img = self.find_threshold(image_np_first,
+                                                        self.find_threshold_bool)  # Find a threshold image
+                    self.find_threshold_bool = -1  # Make sure it only goes through this process once as it is expensive
+                else:
+                    threshold_img = cv2.imread(
+                        "Images/Threshold.tiff")  # If they don't want to find a new threshold, pull the old one
+                    threshold_img = threshold_img[:, :, 0]  # Make sure dimensions are (width, height, 1)
+                print("Capturing image " + str(i))
+                image = cam.GetNextImage()  # Take picture
+                if image.IsIncomplete():  # If its incomplete, try again
+                    print("Error: image is incomplete.")
+                    continue
+                image_np = np.copy(image.GetNDArray())  # Convert image to nd array
+                if self.save_jpg:  # If user wants to save image as .tiff, save as .tiff
+                    cv2.imwrite(self.save_folder + 'Unprocessed Picture ' + str(i) + '.tiff',
+                                image_np)
+                if self.save_np:  # If user wants to save image as .npy, save as .npy
+                    np.save(self.save_folder + "Unprocessed Arry " + str(i), image_np)
+
+                if self.threshold:  # If they want thresholding,
+                    if self.multi:  # If they want multiprocessing,
+                        multiprocessing_threshold_image = multiprocessing.Process(target=self.convert_images, args=(
+                            image_np, threshold_img, i,))  # Create a call to multiprocessing
+                        processes.append(multiprocessing_threshold_image)  # Append it to list of processes
+                        multiprocessing_threshold_image.start()  # Start process
+                    else:
+                        pixel_coords, pixel_vals = self.convert_images(image_np, threshold_img,
+                                                          i)  # Otherwise, process in standard format
+                        if self.UDP_IP is not None and self.UDP_IP != "":  # If the IP address is not None or 0 length
+                            #multiprocessing_data_send = multiprocessing.Process(target=self.send_data,
+                             #                                                   args=(packet_main,
+                              #                                                        i))  # Send the packets using multiprocessing
+                            #processes.append(multiprocessing_data_send)
+                            #multiprocessing_data_send.start()
+                            self.send_data(pixel_coords, pixel_vals, i)  # Send packets to that address
+                del image
+                image_np = None
+                i += 1
+        except KeyboardInterrupt:  # If keyboard interrupt (ctrl+c) is found, kill loop and print message
+            print('Process interrupted.')
+
+        if self.multi:  # If multiprocessing was used, clean up
+            for process_temp in processes:
+                process_temp.join()
+
+        print("Done.")
 
 
-def save_jpg_handler(attr, old, new):
-    settings['save_jpg'] = not settings['save_jpg']  # Flip value of save_jpg
-    if save_jpg_toggle.button_type == 'danger':  # Change the button color from red to green or green to red
-        save_jpg_toggle.button_type = 'success'
-    else:
-        save_jpg_toggle.button_type = 'danger'
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Parses arguments")  # Create argument parser
+    parser.add_argument('--num', type=int,
+                        help='number of images to collect')  # Positional argument to specify number of images
+    parser.add_argument('--jpg', default=False, type=lambda x: (str(x).lower() == 'true'))  # FIXME
+    parser.add_argument('--np', default=False,
+                        type=lambda x: (str(x).lower() == 'true'))  # Optional argument to save image as np array
+    parser.add_argument('--t', default=False,
+                        type=lambda x: (str(x).lower() == 'true'))  # Optional argument to threshold image
 
-
-def threshold_handler(attr, old, new):
-    settings['threshold'] = not settings['threshold']  # Flip the value of threshold
-    if threshold_toggle.button_type == 'danger':  # Change the button color from red to green or green to red
-        threshold_toggle.button_type = 'success'
-    else:
-        threshold_toggle.button_type = 'danger'
-
-
-def save_np_handler(attr, old, new):
-    settings['save_np'] = not settings['save_np']  # Flip the value of save_np
-    if save_np_toggle.button_type == 'success':  # Change the button color from red to green or green to red
-        save_np_toggle.button_type = 'danger'
-    else:
-        save_np_toggle.button_type = 'success'
-
-
-def find_threshold_bool_handler(attr, old, new):
-    settings[
-        'find_threshold_bool'] = find_threshold_bool_slider.value  # Set the value of the setting to the slider value
-
-
-def multi_handler(attr, old, new):
-    settings['multi'] = not settings['multi']  # Flip the value of multi
-    if multi_toggle.button_type == 'success':  # Change the color of the button from green to red or red to green
-        multi_toggle.button_type = 'danger'
-    else:
-        multi_toggle.button_type = 'success'
-
-
-def num_images_handler(attr, old, new):
-    settings['num_images'] = num_images_slider.value  # Set the value of num_images to the selected slider value
-
-
-def run_button_handler(attr, old, new):
-    if run_button.button_type == 'primary':  # Change the run button color from blue to red or red to blue
-        run_button.button_type = 'failure'
-    else:
-        run_button.button_type = 'primary'
-
-    os.system(
-        "python3 CMOSProcess.py --jpg=" + str(settings['save_jpg']) + " --np=" + str(settings['save_np']) + " --t=" +
-        str(settings['threshold']) + " --ft=" + str(settings['find_threshold_bool']) + " --multi="
-        + str(settings['multi']) + " --num=" + str(settings['num_images']) + " --std=" + str(settings['std'])
-        + " --address=" + str(settings['packet_destination']) + " &")  # run command in OS
-
-
-def std_handler(attr, old, new):
-    settings['std'] = std_slider.value  # Change value of setting to selected slider value
-
-
-def animate_update():
-    slider.value += 1  # Increase slider value
-    global source  # "Import" global values
-    global img
-    image_data = cv2.imread("Images/Processed Picture " + str(slider.value) + ".tiff")  # Read in next image
-    image_data = image_data[:, :, 0]  # Convert to mono
-    image_data = np.flipud(image_data)  # Flip right-side up
-    source.data = dict(image=[image_data])  # Update source
-
-
-def animate():
-    global callback_id  # "Import" global values
-    if button.label == 'Start streaming images':  # If start is clicked, change button value and start periodic call
-        button.label = 'Stop streaming images'
-        callback_id = curdoc().add_periodic_callback(animate_update, 1000)
-    else:
-        button.label = 'Start streaming images'  # If stop button is clicked, change button label and stop periodic call
-        curdoc().remove_periodic_callback(callback_id)
-
-
-def science_button_handler():
-    # Turn on thresholding
-    threshold_toggle.button_type = 'success'
-    settings['threshold'] = True
-    # Turn on multiprocessing
-    multi_toggle.button_type = 'success'
-    num_images_slider.value = -1
-    find_threshold_bool_slider.value = -1
-    settings['multi'] = True
-    save_jpg_toggle.button_type = 'danger'
-    settings['save_jpg'] = False
-    save_np_toggle.button_type = 'danger'
-    settings['save_np'] = False
-    settings['find_threshold_bool'] = -1
-    find_threshold_bool_slider.value = -1
-    settings['num_images'] = -1
-    num_images_slider.value = -1
-    settings['std'] = 3
-    std_slider.value = -1
-    settings['packet_destination'] = packet_destination_textbox.value
-
-
-def threshold_button_handler():
-    # save_jpg ON
-    settings['save_jpg'] = True
-    save_jpg_toggle.button_type = 'success'
-    # Find threshold value
-    find_threshold_bool_slider.value = 10
-    settings['find_threshold_bool'] = 10
-    num_images_slider.value = 1
-    settings['num_images'] = 1
-    save_np_toggle.button_type = 'danger'
-    settings['save_np'] = False,
-    settings['std'] = 3
-    settings['packet_destination'] = packet_destination_textbox.value
-
-def save_settings():
-    global settings_json
-    json_f = json.dumps(settings_json) # dump dict as string
-    print(settings_json)
-    f = open("/imageprocess.json", "w") # open json that holds settings
-    f.write(json_f) # write new settings to file
-    f.close() # close file
-
-def textbox_handler(attr, old, new):
-    settings_json['packet_destination'] = packet_destination_textbox.value
-
-
-def load_settings():
-    global settings_json
-    global json_file
-    # open file
-    f = open("imageprocess.json")
-    # Turn it into a dictionary
-    settings_json = dict(json.load(f))
-
-    # Go through each setting and adjust both the value in the dictionary and the way it is represented in the GUI
-    if settings_json['save_jpg'] == 'True':
-        settings_json['save_jpg'] = True
-        save_jpg_toggle.button_type='success'
-    else:
-        settings_json['save_jpg'] = False
-        save_jpg_toggle.button_type='danger'
-
-    if settings_json['threshold'] == 'True':
-        settings_json['threshold'] = True
-        threshold_toggle.button_type = 'success'
-    else:
-        settings_json['threshold'] = False
-        threshold_toggle.button_type = 'danger'
-
-    if settings_json['save_np'] == 'True':
-        settings_json['save_np'] = True
-        save_np_toggle.button_type='success'
-    else:
-        settings_json['save_np'] = False
-        save_np_toggle.button_type='danger'
-
-    if settings_json['multi'] == 'True':
-        settings_json['multi'] = True
-        multi_toggle.button_type = 'success'
-    else:
-        settings_json['multi'] = False
-        multi_toggle.button_type = 'danger'
-
-    settings_json['find_threshold_bool'] = int(settings_json['find_threshold_bool'])
-    find_threshold_bool_slider.value = int(settings_json['find_threshold_bool'])
-
-    settings_json['num_images'] = int(settings_json['num_images'])
-    num_images_slider.value = int(settings_json['num_images'])
-
-    settings_json['std'] = int(settings_json['std'])
-    std_slider.value = int(settings['std'])
-    packet_destination_textbox.value = settings_json['packet_destination']
-
-
-packet_destination_textbox = TextInput(
-    title="What address would you like to send the packet to?")  # Create textinput for data packet address
-
-slider = Slider(start=0, end=1000, value=0, step=1, title="Picture (Do not touch)")  # Create slider to control image #
-button = Button(label='Start streaming images', width=60)  # Create button to start streaming images
-button.on_click(animate)  # On button click, call animate() method to stream images
-json_file = json.load(open('/imageprocess.json'))
-settings_json = dict(json_file)
-# Create toggle for saving images as .jpgs or .tiffs
-if settings_json['save_jpg'] == 'True':
-    save_jpg_toggle = Toggle(active=True, label='Do you want to save images as .jpgs?', button_type='success')
-    settings_json['save_jpg'] = True
-else:
-    save_jpg_toggle = Toggle(active=False, label='Do you want to save images as .jpgs?', button_type='danger')
-    settings_json['save_jpg'] = False
-
-
-# Create toggle for saving images as .npy arrays
-if settings_json['save_np'] == 'True':
-    save_jpg_toggle = Toggle(active=True, label='Do you want to save images as .npy arrays', button_type='success')
-    settings_json['save_np'] = False
-else:
-    save_jpg_toggle = Toggle(active=False, label='Do you want to save images as .npy arrays', button_type='danger')
-    settings_json['save_np'] = False
-# Create toggle for thresholding the images
-if settings_json['threshold'] == 'True':
-    threshold_toggle = Toggle(active=True, label='Do you want to threshold images?', button_type='success')
-    settings_json['threshold'] = True
-else:
-    threshold_toggle = Toggle(active=False, label='Do you want to threshold images?', button_type='success')
-    settings_json['threshold'] = False
-
-# Create slider for finding a new threshold image
-find_threshold_bool_slider = Slider(start=-1, end=300, value=int(settings_json['find_threshold_bool']), title='How many'
-                                     ' images would you like to use to find new threshold image? Enter -1 to use current'
-                                                                                                              'image.')
-# Create toggle for using multiprocessing
-if settings_json['multi'] == 'True':
-    multi_toggle = Toggle(active=True, label='Do you want to use multiprocessing?', button_type='success')
-    settings_json['multi'] = True
-else:
-    multi_toggle = Toggle(active=False, label='Do you want to use multiprocessing?', button_type='danger')
-    settings_json['multi'] = False
-
-load_settings_button = Button(label='load settings from imageprocess.json', width=60)
-save_settings_button = Button(label-'save settings to imageprocess.json', width=60)
-# Create slider for the number of images to be captured
-num_images_slider = Slider(start=-1, end=300, value=int(settings_json['num_images']), title='How many images would you like to take? Leave at -1 for '
-                                                              'images to be taken until manually stopped.')
-# Create button to run the program
-run_button = Toggle(active=False, label="Start collecting images", button_type="primary")
-# Create slider to control the number of standard deviations
-std_slider = Slider(start=0, end=20, value=int(settings_json['std']), title="How many standard deviations would you like to threshold with?")
-# Create button for "science" mode
-science_button = Button(label="Science Mode", width=60)
-# Create button for "threshold" mode
-threshold_button = Button(label="Threshold Mode", width=60)
-# Assign handlers to buttons and toggles(glyphs in general) a.k.a. when button is clicked, this method will be called
-threshold_button.on_click(threshold_button_handler)
-button.on_click(science_button_handler)
-science_button.on_click(science_button_handler)
-# prepare some data
-img = cv2.imread("Images/Threshold.tiff")
-img = img[:, :, 0] # Make image mono
-img = np.flipud(img) # Flip right-side up
-
-# output to static HTML file (with CDN resources)
-output_file("CMOS_Sensor.html", title="BokehGUI.py example", mode="cdn")
-# Assign tools that can be used in the figure
-TOOLS = "crosshair,pan,wheel_zoom,box_zoom,reset,box_select,lasso_select"
-# Create ColumnDataSource for image
-source = ColumnDataSource(data=dict(image=[img]))
-
-# create a new plot with the tools above, and explicit ranges
-p = figure(tools=TOOLS, x_range=(0, img.shape[0]), y_range=(0, 255))
-# add a circle renderer with vectorized colors and sizes
-p.image(image='image', source=source, x=0, y=0, dw=img.shape[1], dh=img.shape[0], palette='Greys256')
-
-# Assign handlers to buttons and toggles (glyphs in general) a.k.a. when glyph is modified, call this method
-save_jpg_toggle.on_change("active", save_jpg_handler)
-save_np_toggle.on_change("active", save_np_handler)
-threshold_toggle.on_change("active", threshold_handler)
-multi_toggle.on_change("active", multi_handler)
-find_threshold_bool_slider.on_change("value", find_threshold_bool_handler)
-run_button.on_change("active", run_button_handler)
-num_images_slider.on_change("value", num_images_handler)
-std_slider.on_change("value", std_handler)
-save_settings_button.on_click(save_settings)
-load_settings_button.on_click(load_settings)
-# Display GUI
-curdoc().add_root(
-    row(column(save_np_toggle, save_jpg_toggle, threshold_toggle, multi_toggle, find_threshold_bool_slider, std_slider,
-               num_images_slider, run_button, p, slider, button), column(threshold_button, science_button,
-                                                                         packet_destination_textbox)))
+    parser.add_argument('--ft', '--ft', type=int, help='find threshold')  # Optional argument to find threshold image
+    parser.add_argument('--multi', default=False,
+                        type=lambda x: (str(x).lower() == 'true'))  # Argument for using multiprocessing
+    parser.add_argument('--std', '--std', type=int, help='number of standard deviations to threshold with')
+    parser.add_argument('--address', type=str, help='address to send packets to')
+    args = parser.parse_args()  # Parse arguments
+    process = Process(args.jpg, args.np, args.t, args.num, args.ft,
+                      args.multi, args.std, args.address)  # Create new process instance
+    system = PySpin.System.GetInstance()  # Get camera system
+    # Get camera list
+    cam_list = system.GetCameras()  # Get all cameras
+    if len(cam_list) == 0:  # If no cameras exist, print error
+        print("No cameras found.")
+    cam = cam_list.GetByIndex(0)  # Get first camera
+    cam.Init()  # Init first camera
+    process.whole_capture(cam)  # Capture, process, and stream images
+    cam.EndAcquisition()  # End acquisition
+    cam.DeInit()  # Deinit camera
+    del cam  # Delete cam object
+    cam_list.Clear()  # Clear cam list
+    del cam_list  # Delete cam list object
+    system.ReleaseInstance()  # Release system instance
