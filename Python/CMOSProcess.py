@@ -65,7 +65,7 @@ class Process():
             packet.append(pixel_val)
             packet.append(pixel_x_coordinate)
             packet.append(pixel_y_coordinate)
-            if sys.getsizeof(packet) > self.PACKET_SIZE:
+            if ((len(packet) + 3)  * 2) + 34 >= self.PACKET_SIZE:
                 send_data = struct.pack("%sh" % (len(packet)), *packet)  # convert list to byte-type
                 self.sock.connect((self.UDP_IP, self.UDP_PORT))
                 self.sock.send(send_data)  # Send to port
