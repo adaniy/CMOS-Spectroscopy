@@ -1,0 +1,4 @@
+#!/bin/sh
+sudo ifconfig eth0 mtu 9000
+sudo sh -c 'echo 2000 > /sys/module/usbcore/parameters/usbfs_memory_mb'
+sudo bokeh serve $HOME/Documents/ImageProcessPython/BokehGUI.py --address=0.0.0.0 --allow-websocket-origin=192.168.109:5006 --port=5006 &
