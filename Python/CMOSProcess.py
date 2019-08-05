@@ -38,9 +38,10 @@ class Process():
     UDP_PORT = 7000
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     PACKET_SIZE = 1024
+    exposure_time = 200
+    gain = 0.6
 
     def __init__(self, save_jpg, save_np, threshold, num_images, find_threshold_bool, multi, std, address):
-
         self.save_jpg = save_jpg
         self.save_np = save_np
         self.threshold = threshold
@@ -58,14 +59,11 @@ class Process():
             pixel_val = pixel
             pixel_x_coordinate = pixels[0][num_pixels]
             pixel_y_coordinate = pixels[1][num_pixels]
-            #pixel_prepped_for_packet = (image_number, pixel_val, pixel_x_coordinate, pixel_y_coordinate)
-            #packet.append(pixel_prepped_for_packet)
             num_pixels += 1
-            #if num_pixels % 10 == 0 or num_pixels == len(pixel_values) - 2:
             packet.append(pixel_val)
             packet.append(pixel_x_coordinate)
             packet.append(pixel_y_coordinate)
-            if ((len(packet) + 3)  * 2) + 34 >= self.PACKET_SIZE:
+            if ((len(packet) + 3)  * 2) + 34 >= self.PACKET_SIZE or num_pixels is len(pixel_values) - 1:
                 send_data = struct.pack("%sh" % (len(packet)), *packet)  # convert list to byte-type
                 self.sock.connect((self.UDP_IP, self.UDP_PORT))
                 self.sock.send(send_data)  # Send to port
@@ -90,8 +88,9 @@ class Process():
         try:
             print("Thresholding...")
             y = np.var(images_threshold, axis=0, dtype=np.dtype("float64"))  # Find variance of the images
-            max_var = max(y.flatten())
+            max_var = np.max(y.flatten())
             y = np.sqrt(y, dtype="float64")  # Find square root of the variance (faster than np.std())
+            print(max_var)
             # Add the mean pixel value to the standard deviation multiplied by the sigma multiple
             img_dev = np.mean(images_threshold, axis=0) + (y * self.std) + max_var
         except KeyboardInterrupt:
@@ -104,13 +103,13 @@ class Process():
 
     def convert_images(self, temp_image_to_be_thresholded, temp_threshold, pic_num):
         # Replace all values greater than the threshold with a purely white pixel
-        pixels = np.where(temp_image_to_be_thresholded > temp_threshold,)
+        print(temp_image_to_be_thresholded, temp_threshold)
+        pixels = np.where(temp_image_to_be_thresholded > temp_threshold)
         pixel_values = temp_image_to_be_thresholded[pixels]
         pixels = list(pixels)
         pixels[0] = pixels[0].astype("int16")
         pixels[1] = pixels[1].astype("int16")
         pixel_values = pixel_values.astype("int8")
-
         temp_image_to_be_thresholded[temp_image_to_be_thresholded > temp_threshold] = 255
         # Replace all values less than the threshold with a purely black pixel
         temp_image_to_be_thresholded[temp_image_to_be_thresholded <= temp_threshold] = 0
@@ -121,9 +120,9 @@ class Process():
             save_folder + "Processed Array " + str(pic_num), temp_image_to_be_thresholded)
         return pixels, pixel_values
 
-    def setup(self):
+    def setup(self, cam):
         exposure_time = 200  # in milliseconds
-        capture_fps = 4.9
+        capture_fps = 10.0
         gain = 0  # ISO for digital cameras
         reverse_x = False
         reverse_y = False
@@ -137,8 +136,8 @@ class Process():
         # set acquisition to continuous, turn off auto exposure, set the frame rate
         # Camera Settings
         # Set Packet Size
-        cam.GevSCPSPacketSize.SetValue(9000)
-        cam.DeviceLinkThroughputLimit.SetValue(125000000)
+        # cam.GevSCPSPacketSize.SetValue(9000)
+        # cam.DeviceLinkThroughputLimit.SetValue(250000000000)
         # Set acquistion mode
         cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
         # Set exposure time
@@ -162,58 +161,127 @@ class Process():
             image_bit = 8
             cam.AdcBitDepth.SetValue(PySpin.AdcBitDepth_Bit10)
             cam.PixelFormat.SetValue(PySpin.PixelFormat_Mono8)
-        cam.BeginAcquisition()
 
-    def whole_capture(self, cam):
-        self.setup()
+
+    def whole_capture(self, cam_list):
+        for i, cam in enumerate(cam_list):
+            nodemap = cam.GetNodeMap()
+            # Set acquisition mode to continuous
+            node_acquisition_mode = PySpin.CEnumerationPtr(nodemap.GetNode('AcquisitionMode'))
+            if not PySpin.IsAvailable(node_acquisition_mode) or not PySpin.IsWritable(node_acquisition_mode):
+                print('Unable to set acquisition mode to continuous (node retrieval; camera %d). Aborting... \n' % i)
+                return False
+
+            node_acquisition_mode_continuous = node_acquisition_mode.GetEntryByName('Continuous')
+            if not PySpin.IsAvailable(node_acquisition_mode_continuous) or not PySpin.IsReadable(
+                    node_acquisition_mode_continuous):
+                print('Unable to set acquisition mode to continuous (entry \'continuous\' retrieval %d). \
+                Aborting... \n' % i)
+                return False
+
+            acquisition_mode_continuous = node_acquisition_mode_continuous.GetValue()
+
+            node_acquisition_mode.SetIntValue(acquisition_mode_continuous)
+            
+            node_exposureauto_mode = PySpin.CEnumerationPtr(nodemap.GetNode("ExposureAuto"))
+            
+
+            
+            
+            # EnumEntry node (always associated with an Enumeration node)
+            node_exposureauto_mode_off = node_exposureauto_mode.GetEntryByName("Off")
+
+            # Turn off Auto Gain
+            node_exposureauto_mode.SetIntValue(node_exposureauto_mode_off.GetValue())
+
+            node_exposure_mode = PySpin.CEnumerationPtr(nodemap.GetNode("ExposureMode"))
+            node_exposuretimed_mode = node_exposure_mode.GetEntryByName("Timed")
+            node_exposure_mode.SetIntValue(node_exposuretimed_mode.GetValue())
+
+            # Retrieve node (float)
+
+            node_iExposure_float = PySpin.CFloatPtr(nodemap.GetNode("ExposureTime"))
+
+            # Set gain to 0.6 dB
+            node_iExposure_float.SetValue(self.exposure_time * 1e3)
+
+            node_gainauto_mode = PySpin.CEnumerationPtr(nodemap.GetNode("GainAuto"))
+            node_gainauto_mode_off = node_gainauto_mode.GetEntryByName("Off")
+            node_gainauto_mode.SetIntValue(node_gainauto_mode_off.GetValue())
+
+
+            node_iGain_float = PySpin.CFloatPtr(nodemap.GetNode("Gain"))
+            node_iGain_float.SetValue(self.gain)
+
+            node_iGammaEnable_bool = PySpin.CBooleanPtr(nodemap.GetNode("GammaEnable"))
+
+            # Set value to true (mirror the image)
+            node_iGammaEnable_bool.SetValue(False)
+            
+            print('Camera %d settings complete...' % i)
+
+            # Begin acquiring images
+            cam.BeginAcquisition()
+
+            print('Camera %d started acquiring images...' % i)
+
+            # Retrieve device serial number for filename0
+            node_device_serial_number = PySpin.CStringPtr(cam.GetTLDeviceNodeMap().GetNode('DeviceSerialNumber'))
+
+            if PySpin.IsAvailable(node_device_serial_number) and PySpin.IsReadable(node_device_serial_number):
+                device_serial_number = node_device_serial_number.GetValue()
+                print('Camera %d serial number set to %s...' % (i, device_serial_number))
+
+
+
+
         processes = []
         threshold_img = None
         i = 0
         try:
-
             while True:  # Take n images
                 # If we have taken the desired number of images, break loop
                 if i == self.num_images:
                     break
                 if i == 0:  # If it's the first image being taken,
-                    image_first = cam.GetNextImage()  # Take a sample photo to be used for the find_threshold() method
-                    image_np_first = image_first.GetNDArray().astype("uint32")
+                    image_np_first = cv2.imread("Images/Threshold.tiff")  # Take a sample photo to be used for the find_threshold() method
                 if self.find_threshold_bool != -1:  # If the user needs to find a threshold image,
                     threshold_img = self.find_threshold(image_np_first,
-                                                        self.find_threshold_bool)  # Find a threshold image
+                                                            self.find_threshold_bool)  # Find a threshold image
                     self.find_threshold_bool = -1  # Make sure it only goes through this process once as it is expensive
                 else:
                     threshold_img = cv2.imread(
-                        "Images/Threshold.tiff")  # If they don't want to find a new threshold, pull the old one
+                            "Images/Threshold.tiff")  # If they don't want to find a new threshold, pull the old one
                     threshold_img = threshold_img[:, :, 0]  # Make sure dimensions are (width, height, 1)
-                print("Capturing image " + str(i))
-                image = cam.GetNextImage()  # Take picture
-                if image.IsIncomplete():  # If its incomplete, try again
-                    print("Error: image is incomplete.")
-                    continue
-                image_np = np.copy(image.GetNDArray())  # Convert image to nd array
-                if self.save_jpg:  # If user wants to save image as .tiff, save as .tiff
-                    cv2.imwrite(self.save_folder + 'Unprocessed Picture ' + str(i) + '.tiff',
-                                image_np)
-                if self.save_np:  # If user wants to save image as .npy, save as .npy
-                    np.save(self.save_folder + "Unprocessed Arry " + str(i), image_np)
+                for cam in cam_list:
+                    print("Capturing image " + str(i))
+                    image = cam.GetNextImage()  # Take picture
+                    if image.IsIncomplete():  # If its incomplete, try again
+                        print("Error: image is incomplete.")
+                        continue
+                    image_np = np.copy(image.GetNDArray())  # Convert image to nd array
+                    if self.save_jpg:  # If user wants to save image as .tiff, save as .tiff
+                        cv2.imwrite(self.save_folder + 'Unprocessed Picture ' + str(i) + '.tiff',
+                                    image_np)
+                    if self.save_np:  # If user wants to save image as .npy, save as .npy
+                        np.save(self.save_folder + "Unprocessed Arry " + str(i), image_np)
 
-                if self.threshold:  # If they want thresholding,
-                    if self.multi:  # If they want multiprocessing,
-                        multiprocessing_threshold_image = multiprocessing.Process(target=self.convert_images, args=(
-                            image_np, threshold_img, i,))  # Create a call to multiprocessing
-                        processes.append(multiprocessing_threshold_image)  # Append it to list of processes
-                        multiprocessing_threshold_image.start()  # Start process
-                    else:
-                        pixel_coords, pixel_vals = self.convert_images(image_np, threshold_img,
-                                                          i)  # Otherwise, process in standard format
-                        if self.UDP_IP is not None and self.UDP_IP != "":  # If the IP address is not None or 0 length
-                            #multiprocessing_data_send = multiprocessing.Process(target=self.send_data,
-                             #                                                   args=(packet_main,
-                              #                                                        i))  # Send the packets using multiprocessing
-                            #processes.append(multiprocessing_data_send)
-                            #multiprocessing_data_send.start()
-                            self.send_data(pixel_coords, pixel_vals, i)  # Send packets to that address
+                    if self.threshold:  # If they want thresholding,
+                        if self.multi:  # If they want multiprocessing,
+                            multiprocessing_threshold_image = multiprocessing.Process(target=self.convert_images, args=(
+                                image_np, threshold_img, i,))  # Create a call to multiprocessing
+                            processes.append(multiprocessing_threshold_image)  # Append it to list of processes
+                            multiprocessing_threshold_image.start()  # Start process
+                        else:
+                            pixel_coords, pixel_vals = self.convert_images(image_np, threshold_img,
+                                                              i)  # Otherwise, process in standard format
+                            if self.UDP_IP is not None and self.UDP_IP != "":  # If the IP address is not None or 0 length
+                                #multiprocessing_data_send = multiprocessing.Process(target=self.send_data,
+                                 #                                                   args=(packet_main,
+                                  #                                                        i))  # Send the packets using multiprocessing
+                                #processes.append(multiprocessing_data_send)
+                                #multiprocessing_data_send.start()
+                                self.send_data(pixel_coords, pixel_vals, i)  # Send packets to that address
                 del image
                 image_np = None
                 i += 1
@@ -248,14 +316,15 @@ if __name__ == '__main__':
     system = PySpin.System.GetInstance()  # Get camera system
     # Get camera list
     cam_list = system.GetCameras()  # Get all cameras
+    for cam in cam_list:
+        cam.Init()
     if len(cam_list) == 0:  # If no cameras exist, print error
         print("No cameras found.")
-    cam = cam_list.GetByIndex(0)  # Get first camera
-    cam.Init()  # Init first camera
-    process.whole_capture(cam)  # Capture, process, and stream images
-    cam.EndAcquisition()  # End acquisition
-    cam.DeInit()  # Deinit camera
-    del cam  # Delete cam object
+    process.whole_capture(cam_list)  # Capture, process, and stream images
+    for cam in cam_list:
+        cam.EndAcquisition()  # End acquisition
+        cam.DeInit()  # Deinit camera
+        del cam  # Delete cam object
     cam_list.Clear()  # Clear cam list
     del cam_list  # Delete cam list object
     system.ReleaseInstance()  # Release system instance
