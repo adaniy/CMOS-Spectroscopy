@@ -41,7 +41,7 @@ class Process():
     exposure_time = 200
     gain = 0.6
 
-    def __init__(self, save_jpg, save_np, threshold, num_images, find_threshold_bool, multi, std, address):
+    def __init__(self, save_jpg, save_np, threshold, num_images, find_threshold_bool, multi, std, address, exposure_time, gain):
         self.save_jpg = save_jpg
         self.save_np = save_np
         self.threshold = threshold
@@ -50,7 +50,8 @@ class Process():
         self.multi = multi
         self.std = std
         self.UDP_IP = address
-
+        self.exposure_time = exposure_time
+        self.gain = gain
     def send_data(self, pixels, pixel_values, image_number):
         num_packets = 0
         num_pixels = 0
@@ -64,6 +65,7 @@ class Process():
             packet.append(pixel_x_coordinate)
             packet.append(pixel_y_coordinate)
             if ((len(packet) + 3)  * 2) + 34 >= self.PACKET_SIZE or num_pixels is len(pixel_values) - 1:
+                print(len(packet))
                 send_data = struct.pack("%sh" % (len(packet)), *packet)  # convert list to byte-type
                 self.sock.connect((self.UDP_IP, self.UDP_PORT))
                 self.sock.send(send_data)  # Send to port
@@ -310,9 +312,11 @@ if __name__ == '__main__':
                         type=lambda x: (str(x).lower() == 'true'))  # Argument for using multiprocessing
     parser.add_argument('--std', '--std', type=int, help='number of standard deviations to threshold with')
     parser.add_argument('--address', type=str, help='address to send packets to')
+    parser.add_argument('--exposure', type=int, help='exposure time in ms')
+    parser.add_argument('--gain', type=float, help='gain val')
     args = parser.parse_args()  # Parse arguments
     process = Process(args.jpg, args.np, args.t, args.num, args.ft,
-                      args.multi, args.std, args.address)  # Create new process instance
+                      args.multi, args.std, args.address, args.exposure, args.gain)  # Create new process instance
     system = PySpin.System.GetInstance()  # Get camera system
     # Get camera list
     cam_list = system.GetCameras()  # Get all cameras

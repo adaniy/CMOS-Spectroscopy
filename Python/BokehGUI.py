@@ -61,7 +61,8 @@ def run_button_handler(attr, old, new):
         "python3 CMOSProcess.py --jpg=" + str(settings_json['save_jpg']) + " --np=" + str(settings_json['save_np']) + " --t=" +
         str(settings_json['threshold']) + " --ft=" + str(settings_json['find_threshold_bool']) + " --multi="
         + str(settings_json['multi']) + " --num=" + str(settings_json['num_images']) + " --std=" + str(settings_json['std'])
-        + " --address=" + str(settings_json['packet_destination']) + " &")  # run command in OS
+        + " --address=" + str(settings_json['packet_destination']) + " --exposure=" + str(settings_json['exposure']) + " --gain=" + str(settings_json['gain'])
+        + " &")  # run command in OS
 
 
 def std_handler(attr, old, new):
@@ -70,8 +71,7 @@ def std_handler(attr, old, new):
 
 def textbox_handler(attr, old, new):
     settings_json['packet_destination'] = packet_destination_textbox.value
-    print(settings_json) #FIXME
-    
+
 
 def animate_update():
     slider.value += 1  # Increase slider value
@@ -113,6 +113,13 @@ def science_button_handler():
     settings_json['std'] = 3
     std_slider.value = -1
     settings_json['packet_destination'] = packet_destination_textbox.value
+
+def exposure_handler(attr, old, new):
+    settings_json['exposure'] = int(exposure_textbox.value)
+    print(settings_json)
+
+def gain_handler(attr, old, new):
+    settings_json['gain'] = float(gain_textbox.value)
 
 
 def threshold_button_handler():
@@ -244,6 +251,11 @@ threshold_button = Button(label="Threshold Mode", width=60)
 threshold_button.on_click(threshold_button_handler)
 button.on_click(science_button_handler)
 science_button.on_click(science_button_handler)
+exposure_textbox = TextInput(title="Enter the desired exposure time in ms", value=str(settings_json['exposure']))
+gain_textbox = TextInput(title="Enter the desired gain value", value=str(settings_json['gain']))
+
+exposure_textbox.on_change('value', exposure_handler)
+gain_textbox.on_change('value', gain_handler)
 # prepare some data
 img = cv2.imread("Images/Threshold.tiff")
 img = img[:, :, 0] # Make image mono
@@ -276,4 +288,4 @@ packet_destination_textbox.on_change("value", textbox_handler)
 # Display GUI
 curdoc().add_root(
     row(column(save_np_toggle, save_jpg_toggle, threshold_toggle, multi_toggle, find_threshold_bool_slider, std_slider,
-               num_images_slider, run_button, p, slider, button), column(threshold_button, science_button, packet_destination_textbox, load_settings_button, save_settings_button)))
+               num_images_slider, exposure_textbox, gain_textbox, run_button, p, slider, button), column(threshold_button, science_button, packet_destination_textbox, load_settings_button, save_settings_button)))
